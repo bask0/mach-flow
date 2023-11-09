@@ -3,14 +3,12 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='project',
+    name='mach-flow',
     version='0.0.0',
-    description='Describe Your Cool Project',
-    author='',
+    description='MACH-Flow project for DL-based rainfall-runoff modeling',
+    author='Basil Kraft',
     author_email='',
     # REPLACE WITH YOUR OWN GITHUB PROJECT LINK
-    url='https://github.com/PyTorchLightning/pytorch-lightning-conference-seed',
-    install_requires=['pytorch-lightning'],
+    url='https://github.com/bask0/mach-flow',
     packages=find_packages(),
 )
-
