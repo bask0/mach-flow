@@ -6,14 +6,14 @@ import pytorch_lightning as pl
 import numpy as np
 from dataclasses import dataclass, fields, is_dataclass
 
-from typing import Any
-
 
 @dataclass
 class Coords:
     station: str
-    start_time: str
-    end_time: str
+    warmup_start_date: str
+    start_date: str
+    end_date: str
+    warmup_size: int
 
 
 @dataclass
@@ -93,23 +93,27 @@ class MachFlowData(Dataset):
                     f'window_min_count={self.window_min_count} valid time steps.'
                 )
 
-            time_end = self.rs.choice(indices) + 1
-            time_start = time_end - self.window_size - self.warmup_size
+            window_end = self.rs.choice(indices) + 1
+            window_start = window_end - self.window_size
+            warmup_start = window_end - self.window_size - self.warmup_size
 
-            data_f = data_f.isel(time=slice(time_start, time_end))
-            data_t = data_t.isel(time=slice(time_start, time_end))
+            data_f = data_f.isel(time=slice(warmup_start, window_end))
+            data_t = data_t.isel(time=slice(warmup_start, window_end))
 
         else:
-            time_start = 0
-            time_end = -1
+            warmup_start = 0
+            window_start = self.warmup_size
+            window_end = -1
 
         return_data = BatchPattern(
             dfeatures=data_f.values.astype('float32'),
             dtargets= data_t.values.astype('float32'),
             coords=Coords(
                 station=self.ds.station.isel(station=station).item(),
-                start_time=self.ds.time[time_start].dt.strftime('%Y-%m-%d').item(),
-                end_time=self.ds.time[time_start - 1].dt.strftime('%Y-%m-%d').item()
+                warmup_start_date=self.ds.time[warmup_start].dt.strftime('%Y-%m-%d').item(),
+                start_date=self.ds.time[window_start].dt.strftime('%Y-%m-%d').item(),
+                end_date=self.ds.time[window_end - 1].dt.strftime('%Y-%m-%d').item(),
+                warmup_size=self.warmup_size
             )
         )
 
@@ -157,8 +161,10 @@ class MachFlowDataModule(pl.LightningDataModule):
         - Dynamic targets (dtargets): (batch_size, num_dtargets, seq_length,)
         - Coords (coords):
             - Station ID (station): (batch_size,)
-            - Window start date including warmup (start_time): (batch_size,)
-            - Window end date (end_time): (batch_size,)
+            - Window start date including warmup (warmup_start_date): (batch_size,)
+            - Window start date without warmup (start_date): (batch_size,)
+            - Window end date (end_date): (batch_size,)
+            - Number of warmup steps (warmup_size): (batch_size,)
 
     """
     def __init__(
@@ -211,9 +217,6 @@ class MachFlowDataModule(pl.LightningDataModule):
         # Lazy-load zarr dataset.
         self.ds = xr.open_zarr('/data/basil/harmonized_basins.zarr/')
 
-        # Save all basins for prediction mode.
-        self.all_basins = self.ds.stations.values
-
         # Drop all stations with all-NaN targets.
         if drop_all_nan_stations:
             mask = self.ds[self.targets].to_array('variable').notnull().any('variable')
@@ -231,7 +234,7 @@ class MachFlowDataModule(pl.LightningDataModule):
             train_frac=train_val_test_split[0],
             val_frac=train_val_test_split[1],
             test_frac=train_val_test_split[2])
-        self.predict_basins = self.ds.stations.values
+        self.predict_basins = self.ds.station.values
 
     def get_dataset(self, mode: str) -> Dataset:
         """Returns a PyTorch Dataset of type MachFlowData.
