@@ -150,7 +150,7 @@ class MachFlowDataModule(pl.LightningDataModule):
     only for windows with at least `window_min_count` observations of a target variable present. For each basin,
     `train_num_samples_per_epoch` random windows are loaded in an epoch.
 
-    A warmup periode of length `warmup_size` is added for model spin-up. Turn off this behavior by setting
+    A warmup period of length `warmup_size` is added for model spin-up. Turn off this behavior by setting
     `warmup_size=0`. If `drop_all_nan_stations` is set to True, sites with all NaN targets are dropped entirely
     from training, validation, and test.
 
