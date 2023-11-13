@@ -177,9 +177,10 @@ class MachFlowDataModule(pl.LightningDataModule):
             train_num_samples_per_epoch: int = 1,
             warmup_size=365,
             drop_all_nan_stations: bool = True,
+            num_cv_folds: int = 6,
+            fold_nr: int = 0,
             batch_size: int = 10,
             num_workers: int = 10,
-            train_val_test_split: tuple[int, int, int] = (60, 20, 20),
             seed: int = 19):
         """Initialize MachFlowDataModule.
 
@@ -195,9 +196,10 @@ class MachFlowDataModule(pl.LightningDataModule):
             warmup_size (int, optional): The number of warmup staps to use for model spinup. Defaults to 365.
             drop_all_nan_stations (bool, optional): If True, only stations with at least one observation are used.
                 Applies for all modes but 'prediction'. Defaults to True.
+            num_cv_folds (int): The number of cross-validation sets (folds). Defaults to 6.
+            fold_nr (int): The fold to use, a value in the range [0, num_cv_folds). Defaults to 0.
             batch_size (int, optional): The minibatch batch size. Defaults to 10.
             num_workers (int, optional): The number of workers. Defaults to 10.
-            train_val_test_split (tuple[int, int, int]): The training, validation, test proportions. Defaults
                 to ()
             seed (int, optional): The random seed. Defaults to 19.
         """
@@ -210,6 +212,8 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.train_num_samples_per_epoch = train_num_samples_per_epoch
         self.warmup_size = warmup_size
         self.drop_all_nan_stations = drop_all_nan_stations
+        self.num_cv_folds = num_cv_folds
+        self.fold_nr = fold_nr
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.seed = seed
@@ -228,12 +232,7 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.rs = np.random.RandomState(seed)
 
         # Split basins into training, validation, and test set.
-        self.train_basins, self.val_basins, self.test_basins = self.split_basins(
-            basins=stations,
-            rs=self.rs,
-            train_frac=train_val_test_split[0],
-            val_frac=train_val_test_split[1],
-            test_frac=train_val_test_split[2])
+        self.train_basins, self.val_basins, self.test_basins = self.split_basins(basins=stations)
         self.predict_basins = self.ds.station.values
 
     def get_dataset(self, mode: str) -> Dataset:
@@ -340,11 +339,7 @@ class MachFlowDataModule(pl.LightningDataModule):
 
     def split_basins(
             self,
-            basins: list[str],
-            rs: np.random.RandomState,
-            train_frac: float,
-            val_frac: float,
-            test_frac: float) -> tuple[list[str], list[str], list[str]]:
+            basins: list[str]) -> tuple[list[str], list[str], list[str]]:
         """Split and return the basins/statinos.
 
         Args:
@@ -356,19 +351,27 @@ class MachFlowDataModule(pl.LightningDataModule):
         Returns:
             tuple[list[str], list[str], list[str]]: The training, validation, and test basin IDs.
         """
-        frac_sum = train_frac + val_frac + test_frac
-        train_frac /= frac_sum
-        val_frac /= frac_sum
-        test_frac /= frac_sum
 
-        num_basins = len(basins)
-        num_train_basins = int(num_basins * train_frac)
-        num_val_basins = int(num_basins * val_frac)
+        if self.fold_nr not in range(self.num_cv_folds):
+            raise ValueError(
+                f'\'fold_nr\' must be in range [0, {self.num_cv_folds}), is {self.fold_nr}.'
+            )
 
-        basins = list(rs.permutation(basins))
+        basins = list(self.rs.permutation(basins))
+        groups = np.array_split(basins, self.num_cv_folds)
 
-        train_basins = basins[:num_train_basins]
-        val_basins = basins[num_train_basins:num_train_basins+num_val_basins]
-        test_basins = basins[num_train_basins+num_val_basins:]
+        folds = {i for i in range(self.num_cv_folds)}
+        valid_folds = {self.fold_nr % (self.num_cv_folds - 1)}
+        test_folds = {(self.fold_nr + 1) % (self.num_cv_folds - 1)}
+        train_folds = folds - valid_folds - test_folds
 
-        return train_basins, val_basins, test_basins
+        train_basins = []
+        valid_basins = []
+        test_basins = []
+        for group_i, group in enumerate(groups):
+            if group_i in train_folds: train_basins.extend(group)
+            if group_i in valid_folds: valid_basins.extend(group)
+            if group_i in test_folds: test_basins.extend(group)
+
+
+        return train_basins, valid_basins, test_basins
