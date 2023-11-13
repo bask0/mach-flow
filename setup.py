@@ -3,7 +3,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='mach-flow',
+    name='machflow',
     version='0.0.0',
     description='MACH-Flow project for DL-based rainfall-runoff modeling',
     author='Basil Kraft',
