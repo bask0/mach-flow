@@ -50,15 +50,19 @@ class MachFlowData(Dataset):
             ds: xr.Dataset,
             features: list[str],
             targets: list[str],
+            stat_features: list[str],
             window_size: int = -1,
             window_min_count: int = -1,
             warmup_size: int = 0,
             num_samples_per_epoch: int = 1,
             seed: int = 19):
 
-        self.ds = ds
+        self.check_vars_in_ds(ds=ds, vars=features + targets)
         self.features = features
         self.targets = targets
+        self.ds = self.add_static_vars(ds=ds, vars=self.features)
+        self.stat_features = [] if stat_features is None else stat_features
+        self.check_vars_in_ds(ds=ds, vars=self.stat_features)
 
         self.window_size = window_size
         self.window_min_count = window_min_count
@@ -81,6 +85,7 @@ class MachFlowData(Dataset):
         station = ind // self.num_samples_per_epoch
 
         data_f = self.get_features(station=station)
+        data_s = self.get_stat_features(station=station)
         data_t = self.get_targets(station=station)
 
         target_rolling_mask = self.get_target_rolling_mask(station=station)
@@ -107,6 +112,7 @@ class MachFlowData(Dataset):
 
         return_data = BatchPattern(
             dfeatures=data_f.values.astype('float32'),
+            sfeatures=None if data_s is None else data_s.values.astype('float32'),
             dtargets= data_t.values.astype('float32'),
             coords=Coords(
                 station=self.ds.station.isel(station=station).item(),
@@ -136,8 +142,41 @@ class MachFlowData(Dataset):
     def get_features(self, **isel) -> xr.DataArray:
         return self.ds[self.features].isel(**isel).to_array('variable')
 
+    def get_stat_features(self, **isel) -> xr.DataArray | None:
+        if self.stat_features is None:
+            return None
+        else:
+            return self.ds[self.stat_features].isel(**isel).to_array('variable')
+
     def get_targets(self, **isel) -> xr.DataArray:
         return self.ds[self.targets].isel(**isel).to_array('variable')
+
+    def check_vars_in_ds(self, ds: xr.Dataset, vars: str | list[str]) -> None:
+        vars = [vars] if isinstance(vars, str) else vars
+
+        missing_vars = []
+        for var in vars:
+            if var not in ds.data_vars:
+                missing_vars.append(var)
+
+        if len(missing_vars) > 0:
+            raise KeyError(
+                f'variable(s) `{"`, `".join(missing_vars)}` not found in the provided dataset `ds`. '
+                f'Valid variables are: `{"`, `".join(list(ds.data_vars))}`.'
+            )
+
+    def add_static_vars(self, ds: xr.Dataset, vars: str | list[str]) -> xr.Dataset:
+        vars = [vars] if isinstance(vars, str) else vars
+        
+        for var in vars:
+            da = ds[var]
+
+            ds[f'{var}_mon_std'] = da.resample(time='1M').mean().std('time').compute()
+            ds[f'{var}_std'] = da.std('time').compute()
+            ds[f'{var}_mean'] = da.mean('time').compute()
+
+        return ds
+
 
 
 class MachFlowDataModule(pl.LightningDataModule):
@@ -172,6 +211,7 @@ class MachFlowDataModule(pl.LightningDataModule):
             machflow_data_path: str,
             features: list[str],
             targets: list[str],
+            stat_features: list[str] | None = None,
             train_window_size: int = 1000,
             window_min_count: int = 1,
             train_num_samples_per_epoch: int = 1,
@@ -179,6 +219,10 @@ class MachFlowDataModule(pl.LightningDataModule):
             drop_all_nan_stations: bool = True,
             num_cv_folds: int = 6,
             fold_nr: int = 0,
+            train_date_slice: slice = slice(None, None),
+            valid_date_slice: slice = slice(None, None),
+            test_date_slice: slice = slice(None, None),
+            predict_date_slice: slice = slice(None, None),
             batch_size: int = 10,
             num_workers: int = 10,
             seed: int = 19):
@@ -188,6 +232,7 @@ class MachFlowDataModule(pl.LightningDataModule):
             machflow_data_path (str): Path to machflow zarr file.
             features (list[str]): A list of features.
             targets (list[str]): A list of targets.
+            stat_features (list[str]): A list of static features.
             train_window_size (int, optional): The training window number of time steps. Defaults to 1000.
             window_min_count (int, optional): Minimum number of target observations in time window. Defaults to 1.
             train_num_samples_per_epoch (int, optional): Number of samples of size `train_window_size` to draw from
@@ -198,6 +243,8 @@ class MachFlowDataModule(pl.LightningDataModule):
                 Applies for all modes but 'prediction'. Defaults to True.
             num_cv_folds (int): The number of cross-validation sets (folds). Defaults to 6.
             fold_nr (int): The fold to use, a value in the range [0, num_cv_folds). Defaults to 0.
+            [train/valid/test/predict]_date_slice: (slice): Slice to subset the respective set in time. Defaults 
+                to no subsetting.
             batch_size (int, optional): The minibatch batch size. Defaults to 10.
             num_workers (int, optional): The number of workers. Defaults to 10.
                 to ()
@@ -207,6 +254,7 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.machflow_data_path = machflow_data_path
         self.features = features
         self.targets = targets
+        self.stat_features = stat_features
         self.train_window_size = train_window_size
         self.window_min_count = window_min_count
         self.train_num_samples_per_epoch = train_num_samples_per_epoch
@@ -214,6 +262,10 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.drop_all_nan_stations = drop_all_nan_stations
         self.num_cv_folds = num_cv_folds
         self.fold_nr = fold_nr
+        self.train_date_slice = train_date_slice
+        self.valid_date_slice = valid_date_slice
+        self.test_date_slice = test_date_slice
+        self.predict_date_slice = predict_date_slice
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.seed = seed
@@ -252,30 +304,35 @@ class MachFlowDataModule(pl.LightningDataModule):
             window_min_count = self.window_min_count
             num_samples_per_epoch = self.train_num_samples_per_epoch
             basins = self.train_basins
+            time_sel = self.train_date_slice
         elif mode == 'val':
             window_size = -1
             window_min_count = self.window_min_count
             num_samples_per_epoch = 1
             basins = self.val_basins
+            time_sel = self.valid_date_slice
         elif mode == 'test':
             window_size = -1
             window_min_count = self.window_min_count
             num_samples_per_epoch = 1
             basins = self.test_basins
+            time_sel = self.test_date_slice
         elif mode == 'predict':
             window_size = -1
             window_min_count = -1
             num_samples_per_epoch = 1
             basins = self.predict_basins
+            time_sel = self.predict_date_slice
         else:
             raise ValueError(
                 f'mode \'{mode}\' not valid, must be one of \'train\', \'val\', \'test\', or \'predict\'.'
             )
 
         dataset = MachFlowData(
-            ds=self.ds.sel(station=basins),
+            ds=self.ds.sel(station=basins, time=time_sel),
             features=self.features,
             targets=self.targets,
+            stat_features=self.stat_features,
             window_size=window_size,
             window_min_count=window_min_count,
             num_samples_per_epoch=num_samples_per_epoch,
