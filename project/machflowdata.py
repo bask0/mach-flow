@@ -1,28 +1,12 @@
 
 import xarray as xr
-from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, default_collate
 import pytorch_lightning as pl
 import numpy as np
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import fields, is_dataclass
 
-
-@dataclass
-class Coords:
-    station: str
-    warmup_start_date: str
-    start_date: str
-    end_date: str
-    warmup_size: int
-
-
-@dataclass
-class BatchPattern:
-    """Class defining MachFlowData return pattern."""
-    dfeatures: Tensor | np.ndarray
-    dtargets: Tensor | np.ndarray
-    coords: Coords
-    sfeatures: Tensor | np.ndarray | None = None
+from utils.torch import Normalize
+from utils.types import SamplePattern, SampleCoords
 
 
 def collate_dataclass(batch):
@@ -50,7 +34,7 @@ class MachFlowData(Dataset):
             ds: xr.Dataset,
             features: list[str],
             targets: list[str],
-            stat_features: list[str],
+            stat_features: list[str] | None = None,
             window_size: int = -1,
             window_min_count: int = -1,
             warmup_size: int = 0,
@@ -61,12 +45,12 @@ class MachFlowData(Dataset):
         if load_ds:
             ds = ds.load()
 
-        self.check_vars_in_ds(ds=ds, vars=features + targets)
+        self.check_vars_in_ds(ds=ds, variables=features + targets)
         self.features = features
         self.targets = targets
-        self.ds = self.add_static_vars(ds=ds, vars=self.features)
+        self.ds = self.add_static_vars(ds=ds, variables=self.features)
         self.stat_features = [] if stat_features is None else stat_features
-        self.check_vars_in_ds(ds=ds, vars=self.stat_features)
+        self.check_vars_in_ds(ds=ds, variables=self.stat_features)
 
         self.window_size = window_size
         self.window_min_count = window_min_count
@@ -84,7 +68,7 @@ class MachFlowData(Dataset):
     def __len__(self) -> int:
         return len(self.ds.station) * self.num_samples_per_epoch
 
-    def __getitem__(self, ind: int) -> BatchPattern:
+    def __getitem__(self, ind: int) -> SamplePattern:
 
         station = ind // self.num_samples_per_epoch
 
@@ -114,11 +98,11 @@ class MachFlowData(Dataset):
             window_start = self.warmup_size
             window_end = -1
 
-        return_data = BatchPattern(
+        return_data = SamplePattern(
             dfeatures=data_f.values.astype('float32'),
             sfeatures=None if data_s is None else data_s.values.astype('float32'),
-            dtargets= data_t.values.astype('float32'),
-            coords=Coords(
+            dtargets=data_t.values.astype('float32'),
+            coords=SampleCoords(
                 station=self.ds.station.isel(station=station).item(),
                 warmup_start_date=self.ds.time[warmup_start].dt.strftime('%Y-%m-%d').item(),
                 start_date=self.ds.time[window_start].dt.strftime('%Y-%m-%d').item(),
@@ -135,7 +119,10 @@ class MachFlowData(Dataset):
     def compute_target_rolling_mask(self, **isel) -> xr.DataArray:
         target_mask = self.compute_target_mask(**isel).load()
         target_rolling_mask = target_mask.rolling(time=self.window_size).sum() >= self.window_min_count
-        return target_rolling_mask.compute()
+        target_rolling_mask = target_rolling_mask.compute()
+        target_rolling_mask[{'time': slice(0, self.warmup_size + self.window_size)}] = False
+
+        return target_rolling_mask
 
     def get_target_rolling_mask(self, **isel) -> xr.DataArray | None:
         if self.target_rolling_mask is None:
@@ -155,11 +142,11 @@ class MachFlowData(Dataset):
     def get_targets(self, **isel) -> xr.DataArray:
         return self.ds[self.targets].isel(**isel).to_array('variable')
 
-    def check_vars_in_ds(self, ds: xr.Dataset, vars: str | list[str]) -> None:
-        vars = [vars] if isinstance(vars, str) else vars
+    def check_vars_in_ds(self, ds: xr.Dataset, variables: str | list[str]) -> None:
+        vars = [variables] if isinstance(variables, str) else variables
 
         missing_vars = []
-        for var in vars:
+        for var in variables:
             if var not in ds.data_vars:
                 missing_vars.append(var)
 
@@ -169,10 +156,10 @@ class MachFlowData(Dataset):
                 f'Valid variables are: `{"`, `".join(list(ds.data_vars))}`.'
             )
 
-    def add_static_vars(self, ds: xr.Dataset, vars: str | list[str]) -> xr.Dataset:
-        vars = [vars] if isinstance(vars, str) else vars
+    def add_static_vars(self, ds: xr.Dataset, variables: str | list[str]) -> xr.Dataset:
+        variables = [variables] if isinstance(variables, str) else variables
         
-        for var in vars:
+        for var in variables:
             da = ds[var]
 
             ds[f'{var}_mon_std'] = da.groupby('time.month').mean().std('month').compute()
@@ -202,7 +189,7 @@ class MachFlowDataModule(pl.LightningDataModule):
         - Dynamic features (dfeatures): (batch_size, num_dfeatures, seq_length,)
         - Static features (sfeatures, optional): (batch_size, num_stargets,)
         - Dynamic targets (dtargets): (batch_size, num_dtargets, seq_length,)
-        - Coords (coords):
+        - BatchCoords (coords):
             - Station ID (station): (batch_size,)
             - Window start date including warmup (warmup_start_date): (batch_size,)
             - Window start date without warmup (start_date): (batch_size,)
@@ -223,13 +210,13 @@ class MachFlowDataModule(pl.LightningDataModule):
             drop_all_nan_stations: bool = True,
             num_cv_folds: int = 6,
             fold_nr: int = 0,
-            train_date_slice: slice = slice(None, None),
-            valid_date_slice: slice = slice(None, None),
-            test_date_slice: slice = slice(None, None),
-            predict_date_slice: slice = slice(None, None),
+            train_date_slice: list[str | None] = [None, None],
+            valid_date_slice: list[str | None] = [None, None],
+            test_date_slice: list[str | None] = [None, None],
+            predict_date_slice: list[str | None] = [None, None],
             batch_size: int = 10,
             num_workers: int = 10,
-            seed: int = 19):
+            seed: int = 19) -> None:
         """Initialize MachFlowDataModule.
 
         Args:
@@ -255,6 +242,8 @@ class MachFlowDataModule(pl.LightningDataModule):
             seed (int, optional): The random seed. Defaults to 19.
         """
 
+        super().__init__()
+
         self.machflow_data_path = machflow_data_path
         self.features = features
         self.targets = targets
@@ -266,10 +255,10 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.drop_all_nan_stations = drop_all_nan_stations
         self.num_cv_folds = num_cv_folds
         self.fold_nr = fold_nr
-        self.train_date_slice = train_date_slice
-        self.valid_date_slice = valid_date_slice
-        self.test_date_slice = test_date_slice
-        self.predict_date_slice = predict_date_slice
+        self.train_date_slice = slice(*train_date_slice)
+        self.valid_date_slice = slice(*valid_date_slice)
+        self.test_date_slice = slice(*test_date_slice)
+        self.predict_date_slice = slice(*predict_date_slice)
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.seed = seed
@@ -291,7 +280,18 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.train_basins, self.val_basins, self.test_basins = self.split_basins(basins=stations)
         self.predict_basins = self.ds.station.values
 
-    def get_dataset(self, mode: str) -> Dataset:
+        train_data = self.get_dataset('train').ds
+        self.norm_args_features = Normalize.get_normalize_args(
+            ds=train_data, norm_variables=self.features
+        )
+        self.norm_args_targets = Normalize.get_normalize_args(
+            ds=train_data, norm_variables=self.targets
+        )
+        self.norm_args_stat_features = Normalize.get_normalize_args(
+            ds=train_data, norm_variables=[] if self.stat_features is None else self.stat_features
+        )
+
+    def get_dataset(self, mode: str) -> MachFlowData:
         """Returns a PyTorch Dataset of type MachFlowData.
 
         Args:
@@ -302,7 +302,7 @@ class MachFlowDataModule(pl.LightningDataModule):
 
         Returns:
             Dataset: A MachFlowData instance.
-        """        
+        """
         if mode == 'train':
             window_size = self.train_window_size
             window_min_count = self.window_min_count
@@ -339,6 +339,7 @@ class MachFlowDataModule(pl.LightningDataModule):
             stat_features=self.stat_features,
             window_size=window_size,
             window_min_count=window_min_count,
+            warmup_size=self.warmup_size,
             num_samples_per_epoch=num_samples_per_epoch,
             seed=self.seed
         )
@@ -430,9 +431,30 @@ class MachFlowDataModule(pl.LightningDataModule):
         valid_basins = []
         test_basins = []
         for group_i, group in enumerate(groups):
-            if group_i in train_folds: train_basins.extend(group)
-            if group_i in valid_folds: valid_basins.extend(group)
-            if group_i in test_folds: test_basins.extend(group)
+            if group_i in train_folds:
+                train_basins.extend(group)
+            if group_i in valid_folds:
+                valid_basins.extend(group)
+            if group_i in test_folds:
+                test_basins.extend(group)
 
 
         return train_basins, valid_basins, test_basins
+
+    @property
+    def num_dfeatures(self) -> int:
+        """The number of dynamic features."""
+        return len(self.features)
+
+    @property
+    def num_sfeatures(self) -> int:
+        """The number of static features."""
+        if self.stat_features is None:
+            return 0
+        else:
+            return len(self.stat_features)
+
+    @property
+    def num_dtargets(self) -> int:
+        """The number of dynamic targets."""
+        return len(self.targets)
