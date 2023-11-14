@@ -41,6 +41,7 @@ tests/tests_tt_dir/
 processed/
 raw/
 sandbox/
+logs/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
