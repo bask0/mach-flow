@@ -55,7 +55,11 @@ class MachFlowData(Dataset):
             window_min_count: int = -1,
             warmup_size: int = 0,
             num_samples_per_epoch: int = 1,
+            load_ds: bool = True,
             seed: int = 19):
+
+        if load_ds:
+            ds = ds.load()
 
         self.check_vars_in_ds(ds=ds, vars=features + targets)
         self.features = features
@@ -171,7 +175,7 @@ class MachFlowData(Dataset):
         for var in vars:
             da = ds[var]
 
-            ds[f'{var}_mon_std'] = da.resample(time='1M').mean().std('time').compute()
+            ds[f'{var}_mon_std'] = da.groupby('time.month').mean().std('month').compute()
             ds[f'{var}_std'] = da.std('time').compute()
             ds[f'{var}_mean'] = da.mean('time').compute()
 
