@@ -10,7 +10,7 @@ trainer:
   callbacks:
     - class_path: pytorch_lightning.callbacks.EarlyStopping
       init_args:
-        monitor: 'val/loss'
+        monitor: 'val_loss'
         patience: 20
         min_delta: 0.0
         mode: 'min'
@@ -19,7 +19,7 @@ trainer:
         refresh_rate: 1
     - class_path: pytorch_lightning.callbacks.ModelCheckpoint
       init_args:
-        monitor: 'val/loss'
+        monitor: 'val_loss'
         mode: min
         filename: 'best'
         save_last: true
