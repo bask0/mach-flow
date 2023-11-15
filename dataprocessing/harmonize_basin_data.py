@@ -74,6 +74,8 @@ def main(zarr_path: str = '/data/basil/harmonized_basins.zarr'):
     ds = xr.concat(station_list, dim='station')
     ds = ds.assign_coords(do_subset=('station', prevah_basins_is_do))
 
+    ds['station'] = ds.station.astype(str)
+
     encoding = {}
     for var in ds.data_vars:
         encoding.update(
