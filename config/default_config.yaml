@@ -6,12 +6,11 @@ trainer:
   devices: auto
   num_nodes: 1
   precision: null
-  logger: null
   callbacks:
     - class_path: pytorch_lightning.callbacks.EarlyStopping
       init_args:
         monitor: 'val_loss'
-        patience: 20
+        patience: 10
         min_delta: 0.0
         mode: 'min'
     - class_path: pytorch_lightning.callbacks.TQDMProgressBar
@@ -24,12 +23,6 @@ trainer:
         filename: 'best'
         save_last: true
         save_top_k: 1
-  logger:
-    - class_path: pytorch_lightning.loggers.tensorboard.TensorBoardLogger 
-      init_args:
-        save_dir: './logs'
-        version: null
-        name: ''
   fast_dev_run: false
   max_epochs: null
   min_epochs: null
