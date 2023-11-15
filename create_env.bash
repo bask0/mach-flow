@@ -21,10 +21,10 @@ mamba remove --yes --name $ENVNAME --all \
 # Create environment
 mamba create --yes --name $ENVNAME python=3.10 \
     pytorch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 pytorch-cuda=11.7 pytorch-lightning \
-    numpy scikit-learn \
+    numpy scikit-learn optuna \
     pandas xarray dask netcdf4 zarr \
-    matplotlib seaborn cartopy \
-    jupyterlab nodejs \
+    matplotlib seaborn cartopy plotly \
+    jupyterlab nodejs pymysql \
     -c pytorch -c nvidia \
     || { echo '>>> Creating environment failed.'; exit 1; }
 
@@ -33,7 +33,7 @@ mamba activate $ENVNAME \
     || { echo '>>> Activating environment failed.'; exit 1; }
 
 # Install pip packages
-pip install torch_geometric dask-labextension pyreadr 'jsonargparse[signatures]>=4.18.0' \
+pip install torch_geometric dask-labextension pyreadr tensorboard flake8 'jsonargparse[signatures]>=4.18.0' \
     || { echo '>>> Installing pip packages failed.'; exit 1; }
 
 # Add mach-flow in editable mode
