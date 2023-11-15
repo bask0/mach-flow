@@ -192,7 +192,8 @@ class PredictionWriter(BasePredictionWriter):
         pdl: DataLoader = trainer.predict_dataloaders
 
         warmup_size: int = pdl.dataset.warmup_size
-        ds: xr.Dataset = pdl.dataset.ds.copy()
+        ds: xr.Dataset = pdl.dataset.ds
+        out_ds = xr.Dataset()
 
         encoding = {}
         for t, target in enumerate(pdl.dataset.targets):
@@ -204,7 +205,7 @@ class PredictionWriter(BasePredictionWriter):
                     da.loc[{'station': station, 'time': slice(start_date, end_date)}] = \
                         output.dtargets[i, t, warmup_size:].detach().numpy()
 
-            ds[new_target_name] = da
+            out_ds[new_target_name] = da
 
             encoding.update(
                 {
@@ -214,8 +215,12 @@ class PredictionWriter(BasePredictionWriter):
                 }
             )
 
-        write_path = os.path.join(self.output_dir, 'preds.zarr')
+        write_path = self.make_predition_path(self.output_dir)
 
-        ds.to_zarr(store=write_path, mode='w', encoding=encoding)
+        out_ds.to_zarr(store=write_path, mode='w', encoding=encoding)
 
         logger.info(f'Predictions written to \'{write_path}\'.')
+
+    @staticmethod
+    def make_predition_path(output_dir: str) -> str:
+        return os.path.join(output_dir, 'preds.zarr')
