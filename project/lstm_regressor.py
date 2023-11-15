@@ -1,15 +1,13 @@
-from argparse import ArgumentParser
 import torch
 from torch import Tensor
 
 from utils.pl import LightningNet
 from utils.torch import Normalize, Transform
 from utils.torch_modules import FeedForward
-from project.machflowdata import MachFlowDataModule
 
 
 class LSTM(LightningNet):
-
+    """LSTM based rainfall-runoff module/"""
     def __init__(
             self,
             num_static_in: int,
@@ -119,50 +117,3 @@ class LSTM(LightningNet):
         out = self.to_sequence_last(out)
 
         return out
-
-    @staticmethod
-    def add_model_specific_args(parent_parser):
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
-
-        parser.add_argument(
-            '--num_static_in', type=int, required=True,
-            help='Number of static inputs.'
-        )
-        parser.add_argument(
-            '--num_dynamic_in', type=int, required=True,
-            help='Number of dynamic inputs.'
-        )
-        parser.add_argument(
-            '--num_enc', type=int, default=4,
-            help='Inputs encoding size.'
-        )
-        parser.add_argument(
-            '--enc_dropout', type=float, default=0.1,
-            help='Encoding dropout.'
-        )
-        parser.add_argument(
-            '--num_enc_layers', type=int, default=1,
-            help='Number of encoding layers.'
-        )
-        parser.add_argument(
-            '--num_hidden', type=int, default=32 ,
-            help='Number of encoding and LSTM hidden nodes.'
-        )
-        parser.add_argument(
-            '--num_lstm_layers', type=int, default=1,
-            help='Number of LSTM layers.'
-        )
-        parser.add_argument(
-            '--num_outputs', type=int, default=1,
-            help='Number of outputs.'
-        )
-        parser.add_argument(
-            '--learning_rate', type=float, default=1e-3,
-            help='Learning rate.'
-        )
-        parser.add_argument(
-            '--weight_decay', type=float, default=0.0,
-            help='Weight decay.'
-        )
-
-        return parser
