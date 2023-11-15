@@ -1,9 +1,13 @@
-
-
+from typing import Any, Sequence
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import BasePredictionWriter
 from pytorch_lightning.utilities.model_summary.model_summary import ModelSummary
 import logging
+from torch.utils.data import DataLoader
 from torch import Tensor
+import xarray as xr
+import numpy as np
+import os
 import warnings
 
 from utils.loss_functions import RegressionLoss
@@ -15,6 +19,7 @@ warnings.filterwarnings('ignore', '.*infer the indices fetched for your dataload
 warnings.filterwarnings('ignore', '.*You requested to overfit.*')
 
 logger = logging.getLogger('lightning')
+
 
 
 class LightningNet(pl.LightningModule):
@@ -169,3 +174,48 @@ class LightningNet(pl.LightningModule):
         s += f'{str(self)}'
 
         return s
+
+
+class PredictionWriter(BasePredictionWriter):
+    def __init__(self, output_dir: str):
+        super().__init__(write_interval="epoch")
+        self.output_dir = output_dir
+        os.makedirs(output_dir, exist_ok=True)
+
+    def write_on_epoch_end(
+            self,
+            trainer: 'pl.Trainer',
+            pl_module: 'pl.LightningModule',
+            predictions: Sequence[ReturnPattern],
+            batch_indices: Sequence[Any]) -> None:
+
+        pdl: DataLoader = trainer.predict_dataloaders
+
+        warmup_size: int = pdl.dataset.warmup_size
+        ds: xr.Dataset = pdl.dataset.ds.copy()
+
+        encoding = {}
+        for t, target in enumerate(pdl.dataset.targets):
+            new_target_name = target + '_mod'
+            da = xr.full_like(ds[target], np.nan).compute()
+            for output in predictions:
+                coords = output.coords
+                for i, (station, start_date, end_date) in enumerate(zip(coords.station, coords.start_date, coords.end_date)):
+                    da.loc[{'station': station, 'time': slice(start_date, end_date)}] = \
+                        output.dtargets[i, t, warmup_size:].detach().numpy()
+
+            ds[new_target_name] = da
+
+            encoding.update(
+                {
+                    new_target_name: {
+                        'chunks': (1, -1)
+                    }
+                }
+            )
+
+        write_path = os.path.join(self.output_dir, 'preds.zarr')
+
+        ds.to_zarr(store=write_path, mode='w', encoding=encoding)
+
+        logger.info(f'Predictions written to \'{write_path}\'.')
