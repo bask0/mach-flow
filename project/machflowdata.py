@@ -106,7 +106,7 @@ class MachFlowData(Dataset):
                 station=self.ds.station.isel(station=station).item(),
                 warmup_start_date=self.ds.time[warmup_start].dt.strftime('%Y-%m-%d').item(),
                 start_date=self.ds.time[window_start].dt.strftime('%Y-%m-%d').item(),
-                end_date=self.ds.time[window_end - 1].dt.strftime('%Y-%m-%d').item(),
+                end_date=self.ds.time[window_end].dt.strftime('%Y-%m-%d').item(),
                 warmup_size=self.warmup_size
             )
         )
@@ -143,7 +143,7 @@ class MachFlowData(Dataset):
         return self.ds[self.targets].isel(**isel).to_array('variable')
 
     def check_vars_in_ds(self, ds: xr.Dataset, variables: str | list[str]) -> None:
-        vars = [variables] if isinstance(variables, str) else variables
+        variables = [variables] if isinstance(variables, str) else variables
 
         missing_vars = []
         for var in variables:
@@ -171,7 +171,7 @@ class MachFlowData(Dataset):
 
 
 class MachFlowDataModule(pl.LightningDataModule):
-    """Describes a MACH-Flow data modukle.
+    """MACH-Flow data modukle.
 
     This MachFlowDataModule builds upon the pl.LightningDataModule. It can be used to define and retrieve the
     training, validation, test, and prediction dataloaders and integrates with the pl.Trainer framework.
