@@ -1,104 +1,122 @@
-# from argparse import ArgumentParser
-# import pytorch_lightning as pl
-# from pytorch_lightning import Trainer
+import os
+import sys
+import shutil
+import optuna
 
-# from project.machflowdata import MachFlowDataModule
-# from lstm_regressor import LSTM
-
-
-# def cli_main():
-#     pl.seed_everything(19)
-
-#     # ------------
-#     # args
-#     # ------------
-#     parser = ArgumentParser()
-#     parser.add_argument(
-#         '--data_path', default='/data/basil/harmonized_basins.zarr/', type=str
-#     )
-#     parser.add_argument(
-#         '--features', nargs='+', default=['P', 'T']
-#     )
-#     parser.add_argument(
-#         '--stat_features', nargs='+', default=['P_mean', 'P_std', 'P_mon_std', 'T_mean', 'T_std', 'T_mon_std']
-#     )
-#     parser.add_argument(
-#         '--targets', nargs='+', default=['Qmm']
-#     )
-#     parser.add_argument(
-#         '--num_samples_per_epoch', default=5, type=int
-#     )
-#     parser.add_argument(
-#         '--batch_size', default=32, type=int
-#     )
-#     parser.add_argument(
-#         '--num_workers', default=0, type=int
-#     )
-#     parser = Trainer.add_argparse_args(parser)
-#     parser = LSTM.add_model_specific_args(parser)
-#     args = parser.parse_args()
-
-#     # ------------
-#     # data
-#     # ------------
-#     datamodule = MachFlowDataModule(
-#         machflow_data_path=args.data_path,
-#         features=args.features,
-#         stat_features=args.stat_features,
-#         targets=args.targets,
-#         train_window_size=1000,
-#         window_min_count=1,
-#         train_num_samples_per_epoch=args.num_samples_per_epoch,
-#         warmup_size=200,
-#         train_date_slice=slice('1961-01-01', '1999-12-31'),
-#         valid_date_slice=slice('2000-01-01', '2009-12-31'),
-#         test_date_slice=slice('2010-01-01', '2023-04-30'),
-#         predict_date_slice=slice(None, None),
-#         batch_size=args.batch_size,
-#         num_workers=args.num_workers,
-#         seed=1
-#     )
-
-#     # ------------
-#     # model
-#     # ------------
-#     model = LSTM.from_argparse_args(args)
-
-#     # ------------
-#     # training
-#     # ------------
-#     trainer = pl.Trainer.from_argparse_args(args)
-#     #trainer.fit(model, train_loader, val_loader)
-
-#     # ------------
-#     # testing
-#     # ------------
-#     #trainer.test(test_dataloaders=test_loader)
-
-
-# if __name__ == '__main__':
-#     cli_main()
-
-
-
-from pytorch_lightning.cli import LightningCLI
+from optuna.integration import PyTorchLightningPruningCallback
 
 from project.machflowdata import MachFlowDataModule
 from project.lstm_regressor import LSTM
+from utils.pl import MyLightningCLI, PredictionWriter
+from utils.tuning import BaseSearchSpace, FakeTrial
+
+LOG_DIR = './logs'
+DEFAULT_CONFIG_PATH = 'config/default_config.yaml'
 
 
-class MyLightningCLI(LightningCLI):
-    def add_arguments_to_parser(self, parser):
-        parser.link_arguments('data.num_sfeatures', 'model.num_static_in', apply_on='instantiate')
-        parser.link_arguments('data.num_dfeatures', 'model.num_dynamic_in', apply_on='instantiate')
-        parser.link_arguments('data.num_dtargets', 'model.num_outputs', apply_on='instantiate')
-        parser.link_arguments('data.norm_args_features', 'model.norm_args_features', apply_on='instantiate')
-        parser.link_arguments('data.norm_args_stat_features', 'model.norm_args_stat_features', apply_on='instantiate')
+class LSTMSearchSpace(BaseSearchSpace):
+    def __init__(self, trial: optuna.Trial) -> None:
+        super().__init__()
+
+        self.config = {
+            'model': {
+                'num_enc': trial.suggest_int('num_enc', 2, 10),
+            }
+        }
 
 
-def cli_main():
-    cli = MyLightningCLI(LSTM, MachFlowDataModule)
+def cli_tune(trial: optuna.Trial | FakeTrial, exp_name: str) -> float:
+
+    dryrun = isinstance(trial, FakeTrial)
+
+    trial_dir = os.path.join(LOG_DIR, exp_name, MyLightningCLI.trial2version(trial))
+
+    if dryrun:
+        config_files = [DEFAULT_CONFIG_PATH]
+        trainer_callbacks = []
+        search_space = None
+    else:
+        search_space = LSTMSearchSpace(trial=trial)
+        config_files = [DEFAULT_CONFIG_PATH, search_space.hp_path]
+        trainer_callbacks = [
+            PyTorchLightningPruningCallback(
+                trial=trial,
+                monitor='val_loss'),
+            PredictionWriter(
+                output_dir=trial_dir
+            )
+        ]
+
+    try:
+        cli = MyLightningCLI(
+            log_dir=LOG_DIR,
+            version=MyLightningCLI.trial2version(trial),
+            exp_name=exp_name,
+            model_class=LSTM,
+            datamodule_class=MachFlowDataModule,
+            parser_kwargs=MyLightningCLI.expand_to_subcommands({'default_config_files': config_files}),
+            trainer_defaults={'callbacks': trainer_callbacks},
+        )
+
+    finally:
+        if search_space is not None:
+            search_space.teardown()
+
+    val_loss = cli.trainer.callback_metrics['val_loss'].item()
+
+    if dryrun:
+        return 0.0
+
+    config_path = os.path.join(trial_dir, 'config.yaml')
+    prediction_path = PredictionWriter.make_predition_path(trial_dir)
+
+    trial.set_user_attr(
+        'config_path', config_path)
+    trial.set_user_attr(
+        'prediction_path', prediction_path)
+    trial.set_user_attr(
+        'epoch', cli.trainer.current_epoch)
+
+    cli.trainer.predict(datamodule=cli.datamodule, ckpt_path='best')
+
+    return val_loss
 
 
 if __name__ == '__main__':
-    cli_main()
+
+    exp_name = 'test'
+    exp_dir = os.path.join(LOG_DIR, exp_name)
+    db_path = os.path.join(exp_dir, 'optuna.db')
+
+    subcommand = sys.argv[1] if len(sys.argv) > 1 else ''
+
+    dry_run = any([arg in sys.argv for arg in ['-h', '--help', '--print_config']])
+
+    # TUNING
+    # =================
+    if subcommand == 'fit':
+        if dry_run:
+            cli_tune(trial=FakeTrial(), exp_name=exp_name)
+
+        if os.path.exists(exp_dir) and not dry_run:
+            shutil.rmtree(exp_dir)
+
+        os.makedirs(exp_dir, exist_ok=True)
+
+        pruner = optuna.pruners.MedianPruner(n_startup_trials=4) if True else optuna.pruners.NopPruner()
+
+        study = optuna.create_study(
+            storage=f'sqlite:///{db_path}',
+            study_name=exp_name,
+            direction='minimize',
+            pruner=pruner,
+            load_if_exists=dry_run
+        )
+        study.optimize(lambda trial: cli_tune(trial=trial, exp_name=exp_name), n_trials=10, timeout=600)
+
+    # INVALID OPTIONS
+    # =================
+    else:
+        raise ValueError(
+            f'only the subcommands \'fit\' and \'predict\' are valid, \'{subcommand}\' was passed.'
+        )

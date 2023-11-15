@@ -1,5 +1,6 @@
 from typing import Any, Sequence
 import pytorch_lightning as pl
+from pytorch_lightning.cli import LightningCLI
 from pytorch_lightning.callbacks import BasePredictionWriter
 from pytorch_lightning.utilities.model_summary.model_summary import ModelSummary
 import logging
@@ -8,10 +9,12 @@ from torch import Tensor
 import xarray as xr
 import numpy as np
 import os
+import optuna
 import warnings
 
 from utils.loss_functions import RegressionLoss
 from utils.types import BatchPattern, ReturnPattern
+from utils.tuning import FakeTrial
 
 
 # Ignore anticipated PL warnings.
@@ -224,3 +227,38 @@ class PredictionWriter(BasePredictionWriter):
     @staticmethod
     def make_predition_path(output_dir: str) -> str:
         return os.path.join(output_dir, 'preds.zarr')
+
+
+class MyLightningCLI(LightningCLI):
+    def __init__(self, log_dir: str, version: str, exp_name: str, *args, **kwargs):
+        self.logger_args = {
+            'class_path': 'pytorch_lightning.loggers.tensorboard.TensorBoardLogger',
+            'init_args': {
+                'save_dir': log_dir,
+                'version': version,
+                'name': exp_name
+            },
+        }
+        super().__init__(*args, **kwargs)
+
+    def add_arguments_to_parser(self, parser):
+        parser.link_arguments(
+            'data.num_sfeatures', 'model.num_static_in', apply_on='instantiate')
+        parser.link_arguments(
+            'data.num_dfeatures', 'model.num_dynamic_in', apply_on='instantiate')
+        parser.link_arguments(
+            'data.num_dtargets', 'model.num_outputs', apply_on='instantiate')
+        parser.link_arguments(
+            'data.norm_args_features', 'model.norm_args_features', apply_on='instantiate')
+        parser.link_arguments(
+            'data.norm_args_stat_features', 'model.norm_args_stat_features', apply_on='instantiate')
+        parser.set_defaults({
+            'trainer.logger': self.logger_args})
+
+    @staticmethod
+    def expand_to_subcommands(x: dict) -> dict:
+        return {subcommand: x for subcommand in ['fit', 'validate', 'test', 'predict']}
+
+    @staticmethod
+    def trial2version(trial: optuna.Trial | FakeTrial) -> str:
+        return f'trial_{trial._trial_id:03d}'
