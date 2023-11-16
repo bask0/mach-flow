@@ -34,6 +34,7 @@ mamba activate $ENVNAME \
 
 # Install pip packages
 pip install torch_geometric dask-labextension pyreadr tensorboard flake8 'jsonargparse[signatures]>=4.18.0' \
+    kaleido \
     || { echo '>>> Installing pip packages failed.'; exit 1; }
 
 # Add mach-flow in editable mode
