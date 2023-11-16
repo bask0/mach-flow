@@ -18,16 +18,12 @@ class LSTM(LightningNet):
             num_hidden: int = 32,
             num_lstm_layers: int = 1,
             num_outputs: int = 1,
-            learning_rate: float = 1e-3,
-            weight_decay: float = 0.0,
             norm_args_features: dict | None = None,
             norm_args_stat_features: dict | None = None) -> None:
 
         super().__init__()
 
         self.save_hyperparameters(ignore=['norm_args_features', 'norm_args_stat_features'])
-        self.learning_rate = learning_rate
-        self.weight_decay = weight_decay
 
         if norm_args_features is not None:
             self.norm_features = Normalize(**norm_args_features)
