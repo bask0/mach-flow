@@ -7,7 +7,7 @@ from utils.torch_modules import FeedForward
 
 
 class LSTM(LightningNet):
-    """LSTM based rainfall-runoff module/"""
+    """LSTM based rainfall-runoff module."""
     def __init__(
             self,
             num_static_in: int,
