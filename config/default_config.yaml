@@ -61,8 +61,6 @@ model:
   num_enc_layers: 1
   num_hidden: 32
   num_lstm_layers: 1
-  learning_rate: 0.001
-  weight_decay: 0.0
 data:
   machflow_data_path: "/data/basil/harmonized_basins.zarr/"
   features:
