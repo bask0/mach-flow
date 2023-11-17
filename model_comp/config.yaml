@@ -1,0 +1,69 @@
+# pytorch_lightning==2.1.0
+seed_everything: 99
+trainer:
+  num_nodes: 1
+  callbacks:
+    - class_path: pytorch_lightning.callbacks.EarlyStopping
+      init_args:
+        monitor: 'val_loss'
+        patience: 10
+        min_delta: 0.0
+        mode: 'min'
+    - class_path: pytorch_lightning.callbacks.TQDMProgressBar
+      init_args:
+        refresh_rate: 1
+    - class_path: pytorch_lightning.callbacks.ModelCheckpoint
+      init_args:
+        monitor: 'val_loss'
+        mode: min
+        filename: 'best'
+        save_last: true
+        save_top_k: 1
+  fast_dev_run: false
+  max_steps: -1
+  overfit_batches: 0.0
+  check_val_every_n_epoch: 1
+  accumulate_grad_batches: 1
+data:
+  class_path: model_comp.machflowdata.MachFlowDataModule
+  init_args:
+    machflow_data_path: "/data/basil/harmonized_basins.zarr/"
+    features:
+    - P
+    - T
+    targets:
+    - Qmm
+    stat_features:
+    - P_mon_std
+    - P_std
+    - P_mean
+    - T_mon_std
+    - T_std
+    - T_mean
+    train_window_size: 1000
+    window_min_count: 1
+    train_num_samples_per_epoch: 100
+    warmup_size: 365
+    drop_all_nan_stations: true
+    num_cv_folds: 6
+    fold_nr: 0
+    train_date_slice:
+    - "1961-01-01"
+    - "1998-12-31"
+    valid_date_slice:
+    - "1999-01-01"
+    - "2008-12-31"
+    test_date_slice:
+    - "2009-01-01"
+    - "2023-04-30"
+    predict_date_slice:
+    - "1961-01-01"
+    - "2023-04-30"
+    batch_size: 10
+    num_workers: 0
+    seed: 19
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 0.001
+    weight_decay: 0.001
