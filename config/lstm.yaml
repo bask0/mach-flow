@@ -1,0 +1,3 @@
+name: lstm
+directory: runs/model_comp/${name}
+version: 'default'
