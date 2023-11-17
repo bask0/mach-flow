@@ -41,3 +41,11 @@ class ReturnPattern:
     """Class defining MachFlowData return pattern."""
     dtargets: Tensor
     coords: BatchCoords
+
+
+class PredictTrial(object):
+    _trial_id = 'predict'
+
+    def __init__(self, config_dir: str, best_model_path: str) -> None:
+        self.config_dir = config_dir
+        self.best_model_path = best_model_path
