@@ -8,21 +8,30 @@ from optuna.integration import PyTorchLightningPruningCallback
 from project.machflowdata import MachFlowDataModule
 from project.lstm_regressor import LSTM
 from utils.pl import MyLightningCLI, PredictionWriter
-from utils.tuning import BaseSearchSpace, FakeTrial
+from utils.tuning import SearchSpace, FakeTrial
 
 LOG_DIR = './logs'
 DEFAULT_CONFIG_PATH = 'config/default_config.yaml'
 
 
-class LSTMSearchSpace(BaseSearchSpace):
-    def __init__(self, trial: optuna.Trial) -> None:
-        super().__init__()
 
-        self.config = {
+class LSTMSearchSpace(SearchSpace):
+    """Defines the search space for the LSTM model."""
+    def __init__(self, trial: optuna.Trial) -> None:
+        config = {
             'model': {
                 'num_enc': trial.suggest_int('num_enc', 2, 10),
+            },
+            'optimizer': {
+                'class_path': 'torch.optim.AdamW',
+                'init_args': {
+                    'lr': trial.suggest_categorical('lr', [1e-4, 1e-3, 1e-2]),
+                    'weight_decay': trial.suggest_categorical('weight_decay', [0, 1e-4, 1e-2]),
+                }
             }
         }
+        super().__init__(config=config)
+
 
 
 def cli_tune(trial: optuna.Trial | FakeTrial, exp_name: str) -> float:
@@ -37,7 +46,7 @@ def cli_tune(trial: optuna.Trial | FakeTrial, exp_name: str) -> float:
         search_space = None
     else:
         search_space = LSTMSearchSpace(trial=trial)
-        config_files = [DEFAULT_CONFIG_PATH, search_space.hp_path]
+        config_files = [DEFAULT_CONFIG_PATH, search_space.config_path]
         trainer_callbacks = [
             PyTorchLightningPruningCallback(
                 trial=trial,
@@ -62,10 +71,10 @@ def cli_tune(trial: optuna.Trial | FakeTrial, exp_name: str) -> float:
         if search_space is not None:
             search_space.teardown()
 
-    val_loss = cli.trainer.callback_metrics['val_loss'].item()
+    if dry_run:
+        return 0
 
-    if dryrun:
-        return 0.0
+    val_loss = cli.trainer.callback_metrics['val_loss'].item()
 
     config_path = os.path.join(trial_dir, 'config.yaml')
     prediction_path = PredictionWriter.make_predition_path(trial_dir)
@@ -112,7 +121,7 @@ if __name__ == '__main__':
             pruner=pruner,
             load_if_exists=dry_run
         )
-        study.optimize(lambda trial: cli_tune(trial=trial, exp_name=exp_name), n_trials=10, timeout=600)
+        study.optimize(lambda trial: cli_tune(trial=trial, exp_name=exp_name), n_trials=20, timeout=600)
 
     # INVALID OPTIONS
     # =================
