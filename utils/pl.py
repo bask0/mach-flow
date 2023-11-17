@@ -10,11 +10,17 @@ import xarray as xr
 import numpy as np
 import os
 import optuna
+from optuna.integration import PyTorchLightningPruningCallback
 import warnings
+from typing import TYPE_CHECKING
 
 from utils.loss_functions import RegressionLoss
-from utils.types import BatchPattern, ReturnPattern
-from utils.tuning import FakeTrial
+from utils.types import BatchPattern, ReturnPattern, PredictTrial
+
+if TYPE_CHECKING:
+    from utils.tuning import SearchSpace
+
+
 
 
 # Ignore anticipated PL warnings.
@@ -229,36 +235,125 @@ class PredictionWriter(BasePredictionWriter):
         return os.path.join(output_dir, 'preds.zarr')
 
 
+
 class MyLightningCLI(LightningCLI):
-    def __init__(self, log_dir: str, version: str, exp_name: str, *args, **kwargs):
-        self.logger_args = {
-            'class_path': 'pytorch_lightning.loggers.tensorboard.TensorBoardLogger',
-            'init_args': {
-                'save_dir': log_dir,
-                'version': version,
-                'name': exp_name
-            },
-        }
+    def __init__(
+            self,
+            directory: str,
+            version: str | int,
+            *args,
+            **kwargs):
+
+        self.directory = directory
+
+        if isinstance(version, str):
+            self.version = version
+        else:
+            self.version = self.id2version(version)
+
+        if 'parser_kwargs' not in kwargs:
+            kwargs['parser_kwargs'] = {}
+
+        kwargs['parser_kwargs'].update({'parser_mode': 'omegaconf'})
+
         super().__init__(*args, **kwargs)
 
     def add_arguments_to_parser(self, parser):
+        parser.add_argument('-m', type=str, help='the model to tune.')
+        parser.add_argument('-o', '--overwrite_existing', action='store_true')
         parser.link_arguments(
-            'data.num_sfeatures', 'model.num_static_in', apply_on='instantiate')
+            'data.num_sfeatures', 'model.init_args.num_static_in', apply_on='instantiate')
         parser.link_arguments(
-            'data.num_dfeatures', 'model.num_dynamic_in', apply_on='instantiate')
+            'data.num_dfeatures', 'model.init_args.num_dynamic_in', apply_on='instantiate')
         parser.link_arguments(
-            'data.num_dtargets', 'model.num_outputs', apply_on='instantiate')
+            'data.num_dtargets', 'model.init_args.num_outputs', apply_on='instantiate')
         parser.link_arguments(
-            'data.norm_args_features', 'model.norm_args_features', apply_on='instantiate')
+            'data.norm_args_features', 'model.init_args.norm_args_features', apply_on='instantiate')
         parser.link_arguments(
-            'data.norm_args_stat_features', 'model.norm_args_stat_features', apply_on='instantiate')
-        parser.set_defaults({
-            'trainer.logger': self.logger_args})
+            'data.norm_args_stat_features', 'model.init_args.norm_args_stat_features', apply_on='instantiate')
 
     @staticmethod
     def expand_to_subcommands(x: dict) -> dict:
         return {subcommand: x for subcommand in ['fit', 'validate', 'test', 'predict']}
 
     @staticmethod
-    def trial2version(trial: optuna.Trial | FakeTrial) -> str:
-        return f'trial_{trial._trial_id:03d}'
+    def id2version(id: int) -> str:
+        return f'trial_{id:03d}'
+
+    @property
+    def subc(self) -> str:
+        if self.subcommand is None:
+            return ''
+        else:
+            return f'{self.subcommand}.'
+
+    @property
+    def version_dir(self) -> str:
+        return os.path.join(self.directory, self.version)
+
+    @property
+    def best_checkpoint_dir(self) -> str:
+        return os.path.join(self.version_dir, 'checkpoints', 'best.ckpt')
+
+    @property
+    def config_dir(self) -> str:
+        return os.path.join(self.version_dir, 'config.yaml')
+
+    def before_instantiate_classes(self):
+
+        self.config[f'{self.subc}trainer.logger'] = {
+            'class_path': 'pytorch_lightning.loggers.tensorboard.TensorBoardLogger',
+            'init_args': {
+                'save_dir': self.directory,
+                'version': self.version,
+                'name': ''
+            }
+        }
+
+
+def cli_main(
+        trial: optuna.Trial | PredictTrial,
+        directory: str,
+        exp_name: str,
+        search_space: 'SearchSpace | None' = None) -> float:
+
+    default_config =  f'{exp_name}/config.yaml'
+
+    if isinstance(trial, PredictTrial):
+        trainer_callbacks = [
+            PredictionWriter(output_dir=directory)
+        ]
+        default_config_files = [trial.config_dir]
+    else:
+        if search_space is None:
+            raise ValueError('argument `SearchSpace` cannot be None for tuning.')
+        trainer_callbacks = [
+            PyTorchLightningPruningCallback(trial=trial, monitor='val_loss')
+        ]
+        default_config_files = [default_config, search_space.config_path]
+
+    cli = MyLightningCLI(
+        directory=directory,
+        version=trial._trial_id,
+        parser_kwargs={
+            'default_config_files': default_config_files
+        },
+        trainer_defaults={'callbacks': trainer_callbacks},
+        run=False
+    )
+
+    if isinstance(trial, PredictTrial):
+        model = type(cli.model).load_from_checkpoint(trial.best_model_path)
+        cli.trainer.predict(model=model, datamodule=cli.datamodule)
+        return 0.0
+    else:
+        cli.trainer.fit(model=cli.model, datamodule=cli.datamodule)
+
+        trial.set_user_attr(
+            'best_checkpoint', cli.best_checkpoint_dir)
+        trial.set_user_attr(
+            'config', cli.config_dir)
+        trial.set_user_attr(
+            'epoch', cli.trainer.current_epoch)
+
+        return cli.trainer.callback_metrics['val_loss'].item()
