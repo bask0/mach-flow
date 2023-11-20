@@ -107,7 +107,8 @@ class MachFlowData(Dataset):
                 warmup_start_date=self.ds.time[warmup_start].dt.strftime('%Y-%m-%d').item(),
                 start_date=self.ds.time[window_start].dt.strftime('%Y-%m-%d').item(),
                 end_date=self.ds.time[window_end].dt.strftime('%Y-%m-%d').item(),
-                warmup_size=self.warmup_size
+                warmup_size=self.warmup_size,
+                cv_set=self.ds.cv_set.isel(station=station).item()
             )
         )
 
@@ -280,6 +281,8 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.train_basins, self.val_basins, self.test_basins = self.split_basins(basins=stations)
         self.predict_basins = self.ds.station.values
 
+        self.add_cv_set_id()
+
         train_data = self.get_dataset('train').ds
         self.norm_args_features = Normalize.get_normalize_args(
             ds=train_data, norm_variables=self.features
@@ -398,6 +401,14 @@ class MachFlowDataModule(pl.LightningDataModule):
             DataLoader: The prediction dataloader.
         """  
         return self.common_dataloader('predict')
+
+    def add_cv_set_id(self) -> None:
+        cv_set = xr.full_like(self.ds.station, -1, dtype=np.int8)
+        cv_set = cv_set.where(~cv_set.station.isin(self.train_basins), 0)
+        cv_set = cv_set.where(~cv_set.station.isin(self.val_basins), 1)
+        cv_set = cv_set.where(~cv_set.station.isin(self.test_basins), 2)
+        cv_set.attrs['note'] = '-1=not used, 0=training, 1=validation, 2=test'
+        self.ds['cv_set'] = cv_set
 
     def split_basins(
             self,
