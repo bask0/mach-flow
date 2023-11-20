@@ -202,7 +202,7 @@ class PredictionWriter(BasePredictionWriter):
 
         warmup_size: int = pdl.dataset.warmup_size
         ds: xr.Dataset = pdl.dataset.ds
-        out_ds = xr.Dataset()
+        out_ds = ds.copy()
 
         encoding = {}
         for t, target in enumerate(pdl.dataset.targets):
