@@ -241,6 +241,8 @@ class MyLightningCLI(LightningCLI):
             self,
             directory: str,
             version: str | int,
+            version_prefix: str = '',
+            add_prediction_writer_callback: bool = False,
             *args,
             **kwargs):
 
@@ -249,18 +251,32 @@ class MyLightningCLI(LightningCLI):
         if isinstance(version, str):
             self.version = version
         else:
-            self.version = self.id2version(version)
+            self.version = self.id2version(prefix=version_prefix, id=version)
 
         if 'parser_kwargs' not in kwargs:
             kwargs['parser_kwargs'] = {}
 
         kwargs['parser_kwargs'].update({'parser_mode': 'omegaconf'})
 
+        if 'parser_kwargs' not in kwargs:
+            kwargs['parser_kwargs'] = {}
+
+        if (
+            add_prediction_writer_callback and
+            ('trainer_defaults' in kwargs) and
+            ('callbacks' in kwargs['trainer_defaults'])):
+            if not isinstance(kwargs['trainer_defaults']['callbacks'], list):
+                raise ValueError(
+                    '\'trainer_defaults[\'callbacks\']\' must be list if passed.'
+                )
+
+            kwargs['trainer_defaults']['callbacks'].append(PredictionWriter(output_dir=self.version_dir))
+
         super().__init__(*args, **kwargs)
 
     def add_arguments_to_parser(self, parser):
         parser.add_argument('-m', type=str, help='the model to tune.')
-        parser.add_argument('-o', '--overwrite_existing', action='store_true')
+        parser.add_argument('-o', '--overwrite_existing', action='store_true', help='overwrite runs if True.')
         parser.link_arguments(
             'data.num_sfeatures', 'model.init_args.num_static_in', apply_on='instantiate')
         parser.link_arguments(
@@ -277,8 +293,8 @@ class MyLightningCLI(LightningCLI):
         return {subcommand: x for subcommand in ['fit', 'validate', 'test', 'predict']}
 
     @staticmethod
-    def id2version(id: int) -> str:
-        return f'trial_{id:03d}'
+    def id2version(prefix: str, id: int) -> str:
+        return f'{prefix}_{id:03d}'
 
     @property
     def subc(self) -> str:
@@ -312,18 +328,29 @@ class MyLightningCLI(LightningCLI):
 
 
 def cli_main(
-        trial: optuna.Trial | PredictTrial,
+        trial: optuna.Trial,
         directory: str,
         exp_name: str,
-        search_space: 'SearchSpace | None' = None) -> float:
+        is_tune: bool,
+        is_predict: bool = False,
+        search_space: 'SearchSpace | None' = None,
+        config_path: str | None = None,
+        ckpt_path: str | None = None,
+        **kwargs) -> float:
 
-    default_config =  f'{exp_name}/config.yaml'
+    if config_path is None:
+        default_config =  f'{exp_name}/config.yaml'
+    else:
+        default_config = config_path
 
-    if isinstance(trial, PredictTrial):
-        trainer_callbacks = [
-            PredictionWriter(output_dir=directory)
-        ]
-        default_config_files = [trial.config_dir]
+    if is_predict:
+        if config_path is None:
+            raise ValueError('with \'is_predict=True\', config_path must be passed.')
+        if ckpt_path is None:
+            raise ValueError('with \'is_predict=True\', ckpt_path must be passed.')
+        trainer_callbacks = []
+        default_config_files = [config_path]
+        version = trial.params['fold_nr']
     else:
         if search_space is None:
             raise ValueError('argument `SearchSpace` cannot be None for tuning.')
@@ -332,18 +359,26 @@ def cli_main(
         ]
         default_config_files = [default_config, search_space.config_path]
 
+        if is_tune:
+            version = trial._trial_id
+        else:
+            version = trial.params['fold_nr']
+
     cli = MyLightningCLI(
         directory=directory,
-        version=trial._trial_id,
+        version=version,
+        version_prefix='trial' if is_tune else 'fold',
+        add_prediction_writer_callback=not is_tune,
         parser_kwargs={
             'default_config_files': default_config_files
         },
         trainer_defaults={'callbacks': trainer_callbacks},
-        run=False
+        run=False,
+        **kwargs
     )
 
-    if isinstance(trial, PredictTrial):
-        model = type(cli.model).load_from_checkpoint(trial.best_model_path)
+    if is_predict:
+        model = type(cli.model).load_from_checkpoint(ckpt_path)
         cli.trainer.predict(model=model, datamodule=cli.datamodule)
         return 0.0
     else:
