@@ -1,7 +1,6 @@
 import optuna
 
-from models.lstm import LSTM
-
+from models.lstm import LSTM  # noqa: F401
 from utils.tuning import SearchSpace, Tuner
 
 
