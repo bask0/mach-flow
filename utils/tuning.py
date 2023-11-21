@@ -7,8 +7,7 @@ import optuna
 from typing import Type, Callable
 
 from utils.pl import cli_main
-from utils.types import PredictTrial
-from utils.analysis import study_summary
+from utils.analysis import study_summary, plot_xval_cdf
 
 
 class SearchSpace(object):
@@ -77,13 +76,15 @@ class SearchSpace(object):
         os.remove(self.config_path)
 
 
-class TuneConfig(object):
-    def __init__(self, log_dir: str, exp_name: str, overwrite: bool = True) -> None:
+class RunConfig(object):
+    def __init__(self, log_dir: str, exp_name: str, is_tune: bool, overwrite: bool = True) -> None:
         self.log_dir = log_dir
         self.exp_name = exp_name
         self.model = self.infer_model()
+        self.is_tune = is_tune
+        self.subdir = 'tune' if is_tune else 'xval'
 
-        self.exp_path = os.path.join(self.log_dir, self.exp_name, self.model)
+        self.exp_path = os.path.join(self.log_dir, self.exp_name, self.model, self.subdir)
         self.db_path = os.path.join(self.exp_path, 'optuna.db')
 
         if os.path.exists(self.exp_path) and overwrite:
@@ -114,52 +115,95 @@ class TuneConfig(object):
         self.search_spaces.update(**search_space_class)
 
     def get_search_space(self, trial: optuna.Trial) -> SearchSpace:
-        if self.model not in self.search_spaces:
-            raise KeyboardInterrupt(
-                f'no SearchSpace with name {self.model} has been registered. do so with `this.register_search_spaces`.'
-            )
+        if self.is_tune:
+            if (self.model not in self.search_spaces):
+                raise KeyError(
+                    f'no SearchSpace with name \'{self.model}\' has been registered for HP tuning. '
+                    'Do so with `this.register_search_spaces`.'
+                )
+            expected_search_space_name = self.model
+        else:
+            if 'xval' not in self.search_spaces:
+                raise KeyError(
+                    'no SeaerchSpace with name \'xval\' has been registered. This is required to run '
+                    'cross validation.'
+                )
+            expected_search_space_name = 'xval'
 
-        return self.search_spaces[self.model](trial)
+        return self.search_spaces[expected_search_space_name](trial)
 
-    def get_study(self, pruner: optuna.pruners.BasePruner = optuna.pruners.NopPruner()) -> optuna.Study:
+    def get_study(
+            self,
+            sampler: optuna.samplers.BaseSampler = optuna.samplers.RandomSampler(),
+            pruner: optuna.pruners.BasePruner = optuna.pruners.NopPruner()) -> optuna.Study:
+
         study = optuna.create_study(
             storage=f'sqlite:///{self.db_path}',
             study_name=self.model,
             direction='minimize',
+            sampler=sampler,
             pruner=pruner,
             load_if_exists=False
         )
+
         return study
 
-    def get_objective(self) -> Callable[[optuna.Trial], float]:
+    def get_objective(self, config_path: str | None = None) -> Callable[[optuna.Trial], float]:
         def objective(trial) -> float:
             return cli_main(
                 trial=trial,
                 directory=self.exp_path,
                 exp_name=self.exp_name,
+                is_tune=self.is_tune,
+                config_path=config_path,
                 search_space=self.get_search_space(trial=trial))
 
         return objective
 
-    def predict_with_best_model(self, study: optuna.Study) -> None:
+    @staticmethod
+    def get_best_config_and_ckpt(study: optuna.Study) -> tuple[str, str]:
         best_trial = study.best_trial
 
-        config = best_trial.user_attrs['config']
-        ckpt = best_trial.user_attrs['best_checkpoint']
+        return best_trial.user_attrs['config'], best_trial.user_attrs['best_checkpoint']
 
-        print('>>> Prediction with best model:')
-        print(f'    - config: {config}')
-        print(f'    - ckpt:   {ckpt}')
+    @staticmethod
+    def get_all_config_and_ckpt(study: optuna.Study) -> list[tuple[optuna.Trial, str, str]]:
+        configs_and_ckpts = []
 
-        cli_main(
-            trial=PredictTrial(
-                config_dir=config,
-                best_model_path=ckpt
-            ),
-            directory=self.exp_path,
-            exp_name=self.exp_name,
-            search_space=None
-        )
+        for trial in study.trials:
+            configs_and_ckpts.append(
+                (   trial,
+                    trial.user_attrs['config'],
+                    trial.user_attrs['best_checkpoint']
+                )
+            )
+
+        return configs_and_ckpts
+
+    def predict_trials(self, study: optuna.Study) -> None:
+        for trial, config, ckpt in self.get_all_config_and_ckpt(study):
+
+            print('>>> Prediction with best model:')
+            print(f'    - config: {config}')
+            print(f'    - ckpt:   {ckpt}')
+
+            cli_main(
+                trial=trial,
+                directory=self.exp_path,
+                exp_name=self.exp_name,
+                is_tune=False,
+                is_predict=True,
+                search_space=None,
+                config_path=config,
+                ckpt_path=ckpt,
+                save_config_callback=None
+            )
+
+        if not self.is_tune:
+            self.plot_xval_cdf()
 
     def summarize_tuning(self) -> None:
         study_summary(study_path=self.db_path, study_name=self.model)
+
+    def plot_xval_cdf(self) -> None:
+        plot_xval_cdf(xval_dir=self.exp_path, save_path=os.path.join(self.exp_path, 'xval_perf.png'))
