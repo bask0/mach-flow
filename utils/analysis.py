@@ -110,7 +110,7 @@ def plot_cdf(
         ax.set_xlabel(name)
         ax.spines[['right', 'top']].set_visible(False)
 
-        if has_ref:
+        if ds_ref is not None:
             ax = axes[1, i]
             ax.boxplot(da - da_ref,
                     vert=False,
