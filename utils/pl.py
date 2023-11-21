@@ -346,21 +346,6 @@ def get_dummy_cli() -> MyLightningCLI:
     return cli
 
 
-SS = TypeVar('SS', bound='SearchSpace')
-def get_search_space(search_spaces: dict[str, Type[SS]]):
-    cli = get_dummy_cli()
-
-    model_name = type(cli.model).__name__
-    if model_name not in search_spaces:
-        raise KeyError(
-            f'no search space found for model \'{model_name}\'.'
-        )
-
-    print(model_name)
-
-    return search_spaces[model_name]
-
-
 def get_default_config_file() -> str:
     config_file =  os.path.join(os.path.dirname(sys.argv[0]), 'config.yaml')
     if not os.path.exists(config_file):
@@ -369,6 +354,7 @@ def get_default_config_file() -> str:
             f'in the calling script directory at:\n  > {config_file}'
         )
     return config_file
+
 
 def get_model_name_from_cli(cli: MyLightningCLI) -> str:
     return type(cli.model).__name__

@@ -43,12 +43,19 @@ class SearchSpace(object):
     MODEL_PATH: str | None = None
     OPTIMIZER_PATH: str = 'torch.optim.AdamW'
 
-    def __init__(self, trial: optuna.Trial, config: dict) -> None:
+    def __init__(self, trial: optuna.Trial, config: dict | None = None) -> None:
         """Initialize the class. Muts be called at the end of subclass initialization.
 
         Args:
-            config (dict): the configuration, see documentation for more details.
+            trial (optuna.Trial): An optuna trial.
+            config (dict): the configuration, see documentation for more details. the argument is required, the       
+                default (None) is used to suppress subclass type hints.
         """
+
+        if config is None:
+            raise ValueError(
+                'you must provide \'config\' argument other than None.'
+            )
 
         if self.MODEL_PATH is None:
             raise ValueError(
