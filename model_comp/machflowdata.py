@@ -432,8 +432,8 @@ class MachFlowDataModule(pl.LightningDataModule):
         groups = np.array_split(basins, self.num_cv_folds)
 
         folds = {i for i in range(self.num_cv_folds)}
-        valid_folds = {self.fold_nr % (self.num_cv_folds - 1)}
-        test_folds = {(self.fold_nr + 1) % (self.num_cv_folds - 1)}
+        valid_folds = {self.fold_nr % self.num_cv_folds}
+        test_folds = {(self.fold_nr + 1) % self.num_cv_folds}
         train_folds = folds - valid_folds - test_folds
 
         train_basins = []
