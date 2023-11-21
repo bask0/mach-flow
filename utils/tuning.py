@@ -1,6 +1,6 @@
 import os
 import shutil
-import sys
+from argparse import Namespace
 import yaml
 import tempfile
 import optuna
@@ -127,7 +127,7 @@ def get_cv_search_space(num_folds: int) -> Type[SearchSpace]:
         def __init__(self, trial: optuna.Trial) -> None:
             config = {
                 'data': {
-                    'class_path': 'model_comp.machflowdata.MachFlowDataModule',
+                    'class_path': 'dataset.machflowdata.MachFlowDataModule',
                     'init_args': {
                         'fold_nr': trial.suggest_categorical('fold_nr', list(range(num_folds)))
                     }
@@ -137,6 +137,22 @@ def get_cv_search_space(num_folds: int) -> Type[SearchSpace]:
 
     return CVSearchSpace
 
+
+def get_full_name(cli) -> str:
+
+    name = cli.config['exp_name']
+
+    if cli.config['config'] is not None:
+        for path in cli.config['config']:
+            rel_path = path.rel_path
+            file_name = os.path.basename(rel_path)
+            if not file_name.endswith('.yaml'):
+                raise ValueError(
+                    f'config files must have ending \'.yaml\', found {rel_path}.'
+                )
+            name += '_' + file_name.split('.yaml')[0]
+
+    return name
 
 SS = TypeVar('SS', bound='SearchSpace')
 
@@ -154,7 +170,7 @@ class Tuner(object):
         self.sampler = sampler
         self.pruner = pruner
         self.log_dir = log_dir
-        self.exp_name = cli.config['exp_name']
+        self.exp_name = get_full_name(cli)
         self.model = get_model_name_from_cli(cli)
         self.num_xval_folds = cli.config['data']['init_args']['num_cv_folds']
         self.overwrite = overwrite

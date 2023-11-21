@@ -39,5 +39,5 @@ if __name__ == '__main__':
         search_spaces=SEARCH_SPACES,
         )
 
-    tuner.tune(n_trials=1)
+    tuner.tune(n_trials=20)
     tuner.xval()

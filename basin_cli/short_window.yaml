@@ -1,0 +1,4 @@
+data:
+  class_path: dataset.machflowdata.MachFlowDataModule
+  init_args:
+    train_window_size: 10
