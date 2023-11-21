@@ -9,17 +9,16 @@ from torch import Tensor
 import xarray as xr
 import numpy as np
 import os
+import sys
 import optuna
-from optuna.integration import PyTorchLightningPruningCallback
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Type, TypeVar
 
 from utils.loss_functions import RegressionLoss
-from utils.types import BatchPattern, ReturnPattern, PredictTrial
+from utils.types import BatchPattern, ReturnPattern
 
 if TYPE_CHECKING:
     from utils.tuning import SearchSpace
-
 
 
 
@@ -261,10 +260,10 @@ class MyLightningCLI(LightningCLI):
         if 'parser_kwargs' not in kwargs:
             kwargs['parser_kwargs'] = {}
 
-        if (
-            add_prediction_writer_callback and
-            ('trainer_defaults' in kwargs) and
-            ('callbacks' in kwargs['trainer_defaults'])):
+        if add_prediction_writer_callback:
+            kwargs.setdefault('trainer_defaults', {})
+            kwargs['trainer_defaults'].setdefault('callbacks', [])
+
             if not isinstance(kwargs['trainer_defaults']['callbacks'], list):
                 raise ValueError(
                     '\'trainer_defaults[\'callbacks\']\' must be list if passed.'
@@ -275,8 +274,8 @@ class MyLightningCLI(LightningCLI):
         super().__init__(*args, **kwargs)
 
     def add_arguments_to_parser(self, parser):
-        parser.add_argument('-m', type=str, help='the model to tune.')
-        parser.add_argument('-o', '--overwrite_existing', action='store_true', help='overwrite runs if True.')
+        parser.add_argument('--exp_name', required=True, type=str, help='the experiment name.')
+        parser.add_argument('--dev', action='store_true', help='quick dev run with one epoch and 1 batch.')
         parser.link_arguments(
             'data.num_sfeatures', 'model.init_args.num_static_in', apply_on='instantiate')
         parser.link_arguments(
@@ -317,6 +316,11 @@ class MyLightningCLI(LightningCLI):
 
     def before_instantiate_classes(self):
 
+        if self.config['dev']:
+            self.config['trainer']['limit_train_batches'] = 1
+            self.config['trainer']['limit_val_batches'] = 1
+            self.config['trainer']['max_epochs'] = 1
+
         self.config[f'{self.subc}trainer.logger'] = {
             'class_path': 'pytorch_lightning.loggers.tensorboard.TensorBoardLogger',
             'init_args': {
@@ -327,68 +331,92 @@ class MyLightningCLI(LightningCLI):
         }
 
 
+def get_dummy_cli() -> MyLightningCLI:
+
+    config_file = os.path.join(os.path.dirname(sys.argv[0]), 'config.yaml')
+    
+    cli = MyLightningCLI(
+        directory='',
+        version='',
+        run=False,
+        parser_kwargs={
+            'default_config_files': [config_file]
+        })
+
+    return cli
+
+
+SS = TypeVar('SS', bound='SearchSpace')
+def get_search_space(search_spaces: dict[str, Type[SS]]):
+    cli = get_dummy_cli()
+
+    model_name = type(cli.model).__name__
+    if model_name not in search_spaces:
+        raise KeyError(
+            f'no search space found for model \'{model_name}\'.'
+        )
+
+    print(model_name)
+
+    return search_spaces[model_name]
+
+
+def get_default_config_file() -> str:
+    config_file =  os.path.join(os.path.dirname(sys.argv[0]), 'config.yaml')
+    if not os.path.exists(config_file):
+        raise FileNotFoundError(
+            'default config file not found. a config file named `config.yaml` must be present '
+            f'in the calling script directory at:\n  > {config_file}'
+        )
+    return config_file
+
+def get_model_name_from_cli(cli: MyLightningCLI) -> str:
+    return type(cli.model).__name__
+
+
 def cli_main(
         trial: optuna.Trial,
         directory: str,
-        exp_name: str,
         is_tune: bool,
-        is_predict: bool = False,
+        config_paths: list[str] | str | None,
         search_space: 'SearchSpace | None' = None,
-        config_path: str | None = None,
-        ckpt_path: str | None = None,
         **kwargs) -> float:
 
-    if config_path is None:
-        default_config =  f'{exp_name}/config.yaml'
-    else:
-        default_config = config_path
+    if config_paths is None:
+        config_paths = []
+    elif isinstance(config_paths, str):
+        config_paths = [config_paths]
 
-    if is_predict:
-        if config_path is None:
-            raise ValueError('with \'is_predict=True\', config_path must be passed.')
-        if ckpt_path is None:
-            raise ValueError('with \'is_predict=True\', ckpt_path must be passed.')
-        trainer_callbacks = []
-        default_config_files = [config_path]
-        version = trial.params['fold_nr']
-    else:
-        if search_space is None:
-            raise ValueError('argument `SearchSpace` cannot be None for tuning.')
-        trainer_callbacks = [
-            PyTorchLightningPruningCallback(trial=trial, monitor='val_loss')
-        ]
-        default_config_files = [default_config, search_space.config_path]
+    if search_space is None:
+        raise ValueError('with \'is_predict=False\', search_space must be passed.')
 
-        if is_tune:
-            version = trial._trial_id
-        else:
-            version = trial.params['fold_nr']
+    config_paths.append(search_space.config_path)
 
     cli = MyLightningCLI(
         directory=directory,
-        version=version,
+        version=trial._trial_id if is_tune else trial.params['fold_nr'],
         version_prefix='trial' if is_tune else 'fold',
         add_prediction_writer_callback=not is_tune,
-        parser_kwargs={
-            'default_config_files': default_config_files
-        },
-        trainer_defaults={'callbacks': trainer_callbacks},
         run=False,
+        parser_kwargs={
+            'default_config_files': config_paths
+        },
         **kwargs
     )
 
-    if is_predict:
-        model = type(cli.model).load_from_checkpoint(ckpt_path)
+    cli.trainer.fit(model=cli.model, datamodule=cli.datamodule)
+
+    trial.set_user_attr(
+        'best_checkpoint', cli.best_checkpoint_dir)
+    trial.set_user_attr(
+        'config', cli.config_dir)
+    trial.set_user_attr(
+        'epoch', cli.trainer.current_epoch)
+
+    val_loss = cli.trainer.callback_metrics['val_loss'].item()
+
+    if not is_tune:
+        model = type(cli.model).load_from_checkpoint(cli.best_checkpoint_dir)
         cli.trainer.predict(model=model, datamodule=cli.datamodule)
-        return 0.0
-    else:
-        cli.trainer.fit(model=cli.model, datamodule=cli.datamodule)
 
-        trial.set_user_attr(
-            'best_checkpoint', cli.best_checkpoint_dir)
-        trial.set_user_attr(
-            'config', cli.config_dir)
-        trial.set_user_attr(
-            'epoch', cli.trainer.current_epoch)
-
-        return cli.trainer.callback_metrics['val_loss'].item()
+    return val_loss

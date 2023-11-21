@@ -6,7 +6,7 @@ from utils.torch import Normalize, Transform
 from utils.torch_modules import FeedForward
 
 
-class LSTM(LightningNet):
+class LSTM__(LightningNet):
     """LSTM based rainfall-runoff module."""
     def __init__(
             self,

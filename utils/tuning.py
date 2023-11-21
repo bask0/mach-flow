@@ -4,9 +4,10 @@ import sys
 import yaml
 import tempfile
 import optuna
-from typing import Type, Callable
+from optuna.integration import PyTorchLightningPruningCallback
+from typing import Type, Callable, TypeVar
 
-from utils.pl import cli_main
+from utils.pl import cli_main, get_dummy_cli, get_model_name_from_cli, get_default_config_file
 from utils.analysis import study_summary, plot_xval_cdf
 
 
@@ -38,6 +39,10 @@ class SearchSpace(object):
             super().__init__(config=config)
 
     """
+
+    MODEL_PATH: str | None = None
+    OPTIMIZER_PATH: str = 'torch.optim.AdamW'
+
     def __init__(self, trial: optuna.Trial, config: dict) -> None:
         """Initialize the class. Muts be called at the end of subclass initialization.
 
@@ -45,13 +50,43 @@ class SearchSpace(object):
             config (dict): the configuration, see documentation for more details.
         """
 
+        if self.MODEL_PATH is None:
+            raise ValueError(
+                'you must override the attribute `MODEL_PATH` in the subclass.'
+            )
+
         self.trial = trial
-        self.config = config
+        self.config = self.make_config(config)
 
         with tempfile.NamedTemporaryFile(delete=False) as f:
             self.config_path = f.name
 
         self._dump_config()
+
+    def make_config(self, config: dict) -> dict:
+        new_config = {}
+
+        for key, value in config.items():
+            if key == 'model':
+                model_config = {
+                    'model': {
+                        'class_path': self.MODEL_PATH,
+                        'init_args': value
+                    }
+                }
+                new_config.update(**model_config)
+            elif key == 'optimizer':
+                optimizer_config = {
+                    'optimizer': {
+                        'class_path': self.OPTIMIZER_PATH,
+                        'init_args': value
+                    }
+                }
+                new_config.update(**optimizer_config)
+            else:
+                new_config.update(**{key: value})
+
+        return new_config
 
     @property
     def config_path(self) -> str:
@@ -76,89 +111,143 @@ class SearchSpace(object):
         os.remove(self.config_path)
 
 
-class RunConfig(object):
-    def __init__(self, log_dir: str, exp_name: str, is_tune: bool, overwrite: bool = True) -> None:
+def get_cv_search_space(num_folds: int) -> Type[SearchSpace]:
+    class CVSearchSpace(SearchSpace):
+        """Defines the cross validation search space for iteration across folds."""
+
+        MODEL_PATH = ''
+
+        def __init__(self, trial: optuna.Trial) -> None:
+            config = {
+                'data': {
+                    'class_path': 'model_comp.machflowdata.MachFlowDataModule',
+                    'init_args': {
+                        'fold_nr': trial.suggest_categorical('fold_nr', list(range(num_folds)))
+                    }
+                },
+            }
+            super().__init__(trial=trial, config=config)
+
+    return CVSearchSpace
+
+
+SS = TypeVar('SS', bound='SearchSpace')
+
+class Tuner(object):
+    def __init__(
+            self,
+            sampler: optuna.samplers.BaseSampler,
+            pruner: optuna.pruners.BasePruner,
+            search_spaces: dict[str, Type[SS]],
+            log_dir: str = 'runs',
+            overwrite: bool = True) -> None:
+
+        cli = get_dummy_cli()
+
+        self.sampler = sampler
+        self.pruner = pruner
         self.log_dir = log_dir
-        self.exp_name = exp_name
-        self.model = self.infer_model()
-        self.is_tune = is_tune
-        self.subdir = 'tune' if is_tune else 'xval'
+        self.exp_name = cli.config['exp_name']
+        self.model = get_model_name_from_cli(cli)
+        self.num_xval_folds = cli.config['data']['init_args']['num_cv_folds']
+        self.overwrite = overwrite
 
-        self.exp_path = os.path.join(self.log_dir, self.exp_name, self.model, self.subdir)
-        self.db_path = os.path.join(self.exp_path, 'optuna.db')
-
-        if os.path.exists(self.exp_path) and overwrite:
-            shutil.rmtree(self.exp_path)
-
-        os.makedirs(self.exp_path)
-
-        self.search_spaces = {}
-
-    def infer_model(self) -> str:
-        model = '<not found>'
-        for i in range(len(sys.argv)):
-            if sys.argv[i] == '-m':
-                if (i + 1) >= len(sys.argv):
-                    raise RuntimeError(
-                        'no `-m` argument passed?'
-                    )
-                model = sys.argv[i + 1].lower()
-
-        if model == '<not found>':
-            raise RuntimeError(
-                'parameter `-m` missing.'
+        if self.model not in search_spaces:
+            raise KeyError(
+                f'for tuning of the model class {self.model}, a `search_space` with the '
+                f'key \'{self.model}\' must be provided.'
             )
 
-        return model
+        self.search_space = search_spaces[self.model]
 
-    def register_search_spaces(self, **search_space_class: Type[SearchSpace]) -> None:
-        self.search_spaces.update(**search_space_class)
+        self.exp_path_tune = os.path.join(self.log_dir, self.exp_name, self.model, 'tune')
+        self.db_path_tune = os.path.join(self.exp_path_tune, 'optuna.db')
 
-    def get_search_space(self, trial: optuna.Trial) -> SearchSpace:
-        if self.is_tune:
-            if (self.model not in self.search_spaces):
-                raise KeyError(
-                    f'no SearchSpace with name \'{self.model}\' has been registered for HP tuning. '
-                    'Do so with `this.register_search_spaces`.'
-                )
-            expected_search_space_name = self.model
-        else:
-            if 'xval' not in self.search_spaces:
-                raise KeyError(
-                    'no SeaerchSpace with name \'xval\' has been registered. This is required to run '
-                    'cross validation.'
-                )
-            expected_search_space_name = 'xval'
+        self.exp_path_xval = os.path.join(self.log_dir, self.exp_name, self.model, 'xval')
+        self.db_path_xval = os.path.join(self.exp_path_xval, 'optuna.db')
 
-        return self.search_spaces[expected_search_space_name](trial)
+        self.best_config_path = None
 
-    def get_study(
-            self,
-            sampler: optuna.samplers.BaseSampler = optuna.samplers.RandomSampler(),
-            pruner: optuna.pruners.BasePruner = optuna.pruners.NopPruner()) -> optuna.Study:
-
+    def new_study(self, db_path: str, is_tune: bool) -> optuna.Study:
         study = optuna.create_study(
-            storage=f'sqlite:///{self.db_path}',
+            storage=f'sqlite:///{db_path}',
             study_name=self.model,
             direction='minimize',
-            sampler=sampler,
-            pruner=pruner,
+            sampler=self.sampler if is_tune else optuna.samplers.BruteForceSampler(),
+            pruner=self.pruner if is_tune else optuna.pruners.NopPruner(),
             load_if_exists=False
         )
 
         return study
 
-    def get_objective(self, config_path: str | None = None) -> Callable[[optuna.Trial], float]:
+    @property
+    def tune_study(self) -> optuna.Study:
+        if not os.path.exists(self.db_path_tune):
+            raise FileNotFoundError(
+                f'tune study does not exist: {self.db_path_tune}. Did you `RunConfig.tune` already?'
+            )
+        return optuna.load_study(study_name=self.model, storage=f'sqlite:///{self.db_path_tune}')
+
+    @property
+    def xval_study(self) -> optuna.Study:
+        if not os.path.exists(self.db_path_xval):
+            raise FileNotFoundError(
+                f'xval study does not exist: {self.db_path_tune}. Did you `RunConfig.xval` already?'
+            )
+        return optuna.load_study(study_name=self.model, storage=f'sqlite:///{self.db_path_xval}')
+
+    def get_objective(self, is_tune: bool) -> Callable[[optuna.Trial], float]:
+        if is_tune:
+            search_space = self.search_space
+        else:
+            search_space = get_cv_search_space(num_folds=self.num_xval_folds)
+
         def objective(trial) -> float:
+            if is_tune:
+                config_file = get_default_config_file()
+
+                kwargs = {
+                    'trainer_defaults':
+                        {'callbacks': [
+                            PyTorchLightningPruningCallback(trial=trial, monitor='val_loss')
+                        ]}
+                }
+            else:
+                config_file, _ = self.get_best_config_and_ckpt(self.tune_study)
+
+                kwargs = {}
+
             return cli_main(
                 trial=trial,
-                directory=self.exp_path,
-                exp_name=self.exp_name,
-                is_tune=self.is_tune,
-                config_path=config_path,
-                search_space=self.get_search_space(trial=trial))
+                directory=self.exp_path_tune if is_tune else self.exp_path_xval,
+                is_tune=is_tune,
+                config_paths=config_file,
+                search_space=search_space(trial),
+                **kwargs
+            )
 
         return objective
+
+    def tune(self, n_trials: int, **kwargs) -> None:
+        if os.path.exists(self.exp_path_tune) and self.overwrite:
+            shutil.rmtree(self.exp_path_tune)
+
+        os.makedirs(self.exp_path_tune)
+
+        study = self.new_study(db_path=self.db_path_tune, is_tune=True)
+
+        study.optimize(self.get_objective(is_tune=True), n_trials=n_trials, **kwargs)
+        self.summarize_tuning()
+
+    def xval(self) -> None:
+        if os.path.exists(self.exp_path_xval) and self.overwrite:
+            shutil.rmtree(self.exp_path_xval)
+
+        os.makedirs(self.exp_path_xval)
+
+        study = self.new_study(db_path=self.db_path_xval, is_tune=False)
+        study.optimize(self.get_objective(is_tune=False))
+        self.plot_xval_cdf()
 
     @staticmethod
     def get_best_config_and_ckpt(study: optuna.Study) -> tuple[str, str]:
@@ -180,30 +269,8 @@ class RunConfig(object):
 
         return configs_and_ckpts
 
-    def predict_trials(self, study: optuna.Study) -> None:
-        for trial, config, ckpt in self.get_all_config_and_ckpt(study):
-
-            print('>>> Prediction with best model:')
-            print(f'    - config: {config}')
-            print(f'    - ckpt:   {ckpt}')
-
-            cli_main(
-                trial=trial,
-                directory=self.exp_path,
-                exp_name=self.exp_name,
-                is_tune=False,
-                is_predict=True,
-                search_space=None,
-                config_path=config,
-                ckpt_path=ckpt,
-                save_config_callback=None
-            )
-
-        if not self.is_tune:
-            self.plot_xval_cdf()
-
     def summarize_tuning(self) -> None:
-        study_summary(study_path=self.db_path, study_name=self.model)
+        study_summary(study_path=self.db_path_tune, study_name=self.model)
 
     def plot_xval_cdf(self) -> None:
-        plot_xval_cdf(xval_dir=self.exp_path, save_path=os.path.join(self.exp_path, 'xval_perf.png'))
+        plot_xval_cdf(xval_dir=self.exp_path_xval, save_path=os.path.join(self.exp_path_xval, 'xval_perf.png'))
