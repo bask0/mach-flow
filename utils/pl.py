@@ -287,10 +287,6 @@ class MyLightningCLI(LightningCLI):
             'data.norm_args_stat_features', 'model.init_args.norm_args_stat_features', apply_on='instantiate')
 
     @staticmethod
-    def expand_to_subcommands(x: dict) -> dict:
-        return {subcommand: x for subcommand in ['fit', 'validate', 'test', 'predict']}
-
-    @staticmethod
     def id2version(prefix: str, id: int) -> str:
         return f'{prefix}_{id:03d}'
 
