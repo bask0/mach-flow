@@ -316,9 +316,9 @@ class MyLightningCLI(LightningCLI):
     def before_instantiate_classes(self):
 
         if self.config['dev']:
-            self.config['trainer']['limit_train_batches'] = 1
-            self.config['trainer']['limit_val_batches'] = 1
-            self.config['trainer']['max_epochs'] = 1
+            self.config['trainer']['limit_train_batches'] = 2
+            self.config['trainer']['limit_val_batches'] = 2
+            self.config['trainer']['max_epochs'] = 2
 
         self.config[f'{self.subc}trainer.logger'] = {
             'class_path': 'pytorch_lightning.loggers.tensorboard.TensorBoardLogger',
