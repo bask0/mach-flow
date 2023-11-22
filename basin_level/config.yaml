@@ -40,7 +40,7 @@ data:
     - T_mon_std
     - T_std
     - T_mean
-    train_window_size: 1000
+    train_window_size: 730
     window_min_count: 1
     train_num_samples_per_epoch: 10
     warmup_size: 365
