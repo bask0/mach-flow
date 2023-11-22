@@ -42,7 +42,7 @@ data:
     - T_mean
     train_window_size: 1000
     window_min_count: 1
-    train_num_samples_per_epoch: 100
+    train_num_samples_per_epoch: 10
     warmup_size: 365
     drop_all_nan_stations: true
     num_cv_folds: 6
