@@ -174,6 +174,7 @@ def plot_xval_cdf(
         mod_name: str = 'Qmm_mod',
         ref_name: str | None = 'Qmm_prevah',
         save_path: str | None = None,
+        subset: dict = {},
         **kwargs) -> None:
 
     if save_path is None:
@@ -182,6 +183,8 @@ def plot_xval_cdf(
         )
 
     ds = load_xval_test_set(xval_dir=xval_dir)
+    ds = ds.sel(**subset)
+
     met = compute_metrics(metrics=['r', 'nse'], obs=ds[obs_name], mod=ds[mod_name], dim='time')
 
     if ref_name is None:
