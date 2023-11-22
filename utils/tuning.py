@@ -1,47 +1,88 @@
 import os
+import sys
 import shutil
-from argparse import Namespace
 import yaml
 import tempfile
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback
-from typing import Type, Callable, TypeVar
+from typing import Type, Callable, TypeVar, TYPE_CHECKING
 
-from utils.pl import cli_main, get_dummy_cli, get_model_name_from_cli, get_default_config_file
+from utils.pl import cli_main, get_dummy_cli, LightningNet
 from utils.analysis import study_summary, plot_xval_cdf
 
+if TYPE_CHECKING:
+    from utils.pl import MyLightningCLI
 
-class SearchSpace(object):
+import logging
+logger = logging.getLogger('pytorch_lightning')
+
+
+class SearchSpaceMeta(type): 
+    def __new__(cls, name: str, bases, defcl) -> 'SearchSpace':
+        obj: 'SearchSpace' = super().__new__(cls, name, bases, defcl)
+
+        if obj.MODEL is None:
+            obj.MODEL_PATH = None
+            obj.MODEL_NAME = None
+        elif isinstance(obj.MODEL, type) and issubclass(obj.MODEL, LightningNet):
+            path, name = cls.classname(obj.MODEL)
+            obj.MODEL_PATH = path
+            obj.MODEL_NAME = name
+        else:
+            raise TypeError(
+                f'class attribute `MODEL` of {type(obj).__name__} must be `None` or a subclass of `LightningNet`, '
+                f'is `{type(obj.MODEL).__name__}`.'
+            )
+
+        return obj
+
+    @classmethod
+    def classname(cls, model_class: 'Type[LightningNet]') -> tuple[str, str]:
+        module = model_class.__module__
+        name = model_class.__qualname__
+        if module is not None and module != "__builtin__":
+            path = module + "." + name
+        else:
+            path = name
+        return path, name
+
+
+class SearchSpace(object, metaclass=SearchSpaceMeta):
     """SearchSpace definition, meant to be subclassed.
 
     This base SearchSpace must be subclassed.
     * In the subclasse\'s `CustomSearchSpace.__init__` method, the parent class muts be initialized
-    using `super().__init__(config=...)`.
+    using `super().__init__(trial=..., config=...)`.
+    * The subclass must override the class attribute `MODEL` with the `utils.pl.LightningNet` for which the search space configuration applies.
     * The subclasse\'s `CustomSearchSpace.__init__` method must take a single argument, `trial`, an `optuna.Trial`.
     * The config file is a yaml-style configuration which is passed to the LightningCLI.
     * The search space is constructed using optune trials.
+    * The default optimizer (Ada) can be changed by overriding the class attribute `OPTIMIZER_PATH` in the subclass.
 
     Example:
-    >>> class CustomSearchSpace(SearchSpace):
-        def __init__(self, trial: optuna.Trial) -> None:
-            config = {
-                'model': {
-                    'num_layers': trial.suggest_int('num_layers', 1, 3),
-                },
-                'optimizer': {
-                    'class_path': 'torch.optim.AdamW',
-                    'init_args': {
+    >>> import MyLightningModel
+        class CustomSearchSpace(SearchSpace):
+            MODEL = MyLightningModel  # Must be subclass of utils.pl.LightningNet
+            OPTIMIZER_PATH = 'torch.optim.SGD'  # use SGD instead of AdamW.
+            def __init__(self, trial: optuna.Trial) -> None:
+                config = {
+                    'model': {
+                        'num_layers': trial.suggest_int('num_layers', 1, 3),
+                    },
+                    'optimizer': {
                         'lr': trial.suggest_categorical('lr', [1e-4, 1e-3, 1e-2]),
                         'weight_decay': trial.suggest_categorical('weight_decay', [0, 1e-4, 1e-2]),
-                    }
                 }
-            }
-            super().__init__(config=config)
+                super().__init__(trial=trial, config=config)
 
     """
 
-    MODEL_PATH: str | None = None
+    MODEL: Type[LightningNet] | None = None
+    MODEL_PATH: str | None
+    MODEL_NAME: str | None
     OPTIMIZER_PATH: str = 'torch.optim.AdamW'
+
+    IS_XVAL: bool = False
 
     def __init__(self, trial: optuna.Trial, config: dict | None = None) -> None:
         """Initialize the class. Muts be called at the end of subclass initialization.
@@ -57,10 +98,7 @@ class SearchSpace(object):
                 'you must provide \'config\' argument other than None.'
             )
 
-        if self.MODEL_PATH is None:
-            raise ValueError(
-                'you must override the attribute `MODEL_PATH` in the subclass.'
-            )
+        self._validate_model_path()
 
         self.trial = trial
         self.config = self.make_config(config)
@@ -69,6 +107,15 @@ class SearchSpace(object):
             self.config_path = f.name
 
         self._dump_config()
+
+    def _validate_model_path(self) -> None:
+        if self.IS_XVAL:
+            return
+
+        if self.MODEL_PATH is None:
+            raise ValueError(
+                'you must override the attribute `MODEL_PATH` in the subclass.'
+            )
 
     def make_config(self, config: dict) -> dict:
         new_config = {}
@@ -122,7 +169,7 @@ def get_cv_search_space(num_folds: int) -> Type[SearchSpace]:
     class CVSearchSpace(SearchSpace):
         """Defines the cross validation search space for iteration across folds."""
 
-        MODEL_PATH = ''
+        IS_XVAL = True
 
         def __init__(self, trial: optuna.Trial) -> None:
             config = {
@@ -138,9 +185,28 @@ def get_cv_search_space(num_folds: int) -> Type[SearchSpace]:
     return CVSearchSpace
 
 
+def get_model_name_from_cli(cli: 'MyLightningCLI') -> str:
+    return type(cli.model).__name__
+
+
+def get_default_config_file() -> str:
+    config_file =  os.path.join(os.path.dirname(sys.argv[0]), 'config.yaml')
+    if not os.path.exists(config_file):
+        raise FileNotFoundError(
+            'default config file not found. a config file named `config.yaml` must be present '
+            f'in the calling script directory at:\n  > {config_file}'
+        )
+    return config_file
+
+
+def get_exp_name() -> str:
+    exp_name =  os.path.basename(os.path.abspath(os.path.dirname(sys.argv[0])))
+    return exp_name
+
+
 def get_full_name(cli) -> str:
 
-    name = cli.config['exp_name']
+    name = get_exp_name()
 
     if cli.config['config'] is not None:
         for path in cli.config['config']:
@@ -154,6 +220,16 @@ def get_full_name(cli) -> str:
 
     return name
 
+
+def get_search_spaces():
+    d = {cls.MODEL_NAME: cls for cls in SearchSpace.__subclasses__()}
+    if len(d) < 1:
+        raise RuntimeError(
+            'no SearchSpace detected.'
+        )
+    return d
+
+
 SS = TypeVar('SS', bound='SearchSpace')
 
 class Tuner(object):
@@ -161,11 +237,13 @@ class Tuner(object):
             self,
             sampler: optuna.samplers.BaseSampler,
             pruner: optuna.pruners.BasePruner,
-            search_spaces: dict[str, Type[SS]],
             log_dir: str = 'runs',
             overwrite: bool = True) -> None:
 
         cli = get_dummy_cli()
+
+        self.is_dev = cli.config['dev']
+        search_spaces = get_search_spaces()
 
         self.sampler = sampler
         self.pruner = pruner
@@ -252,6 +330,11 @@ class Tuner(object):
         return objective
 
     def tune(self, n_trials: int, **kwargs) -> None:
+
+        if self.is_dev:
+            logger.warning('Setting `n_trials=2` for dev run.')
+            n_trials = 2
+
         if os.path.exists(self.exp_path_tune) and self.overwrite:
             shutil.rmtree(self.exp_path_tune)
 

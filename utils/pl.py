@@ -12,7 +12,7 @@ import os
 import sys
 import optuna
 import warnings
-from typing import TYPE_CHECKING, Type, TypeVar
+from typing import TYPE_CHECKING
 
 from utils.loss_functions import RegressionLoss
 from utils.types import BatchPattern, ReturnPattern
@@ -274,7 +274,6 @@ class MyLightningCLI(LightningCLI):
         super().__init__(*args, **kwargs)
 
     def add_arguments_to_parser(self, parser):
-        parser.add_argument('--exp_name', required=True, type=str, help='the experiment name.')
         parser.add_argument('--dev', action='store_true', help='quick dev run with one epoch and 1 batch.')
         parser.link_arguments(
             'data.num_sfeatures', 'model.init_args.num_static_in', apply_on='instantiate')
@@ -344,20 +343,6 @@ def get_dummy_cli() -> MyLightningCLI:
         })
 
     return cli
-
-
-def get_default_config_file() -> str:
-    config_file =  os.path.join(os.path.dirname(sys.argv[0]), 'config.yaml')
-    if not os.path.exists(config_file):
-        raise FileNotFoundError(
-            'default config file not found. a config file named `config.yaml` must be present '
-            f'in the calling script directory at:\n  > {config_file}'
-        )
-    return config_file
-
-
-def get_model_name_from_cli(cli: MyLightningCLI) -> str:
-    return type(cli.model).__name__
 
 
 def cli_main(

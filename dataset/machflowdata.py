@@ -86,17 +86,23 @@ class MachFlowData(Dataset):
                     f'window_min_count={self.window_min_count} valid time steps.'
                 )
 
-            window_end = self.rs.choice(indices) + 1
-            window_start = window_end - self.window_size
-            warmup_start = window_end - self.window_size - self.warmup_size
+            slice_end = self.rs.choice(indices) + 1  # for slicing we need end index + 1
+            slice_start = slice_end - self.window_size - self.warmup_size
 
-            data_f = data_f.isel(time=slice(warmup_start, window_end))
-            data_t = data_t.isel(time=slice(warmup_start, window_end))
+            warmup_start_index = slice_start
+            window_start_index = slice_start + self.warmup_size
+            window_end_index = slice_end - 1
+
+            data_f = data_f.isel(time=slice(slice_start, slice_end))
+            data_t = data_t.isel(time=slice(slice_start, slice_end))
 
         else:
-            warmup_start = 0
-            window_start = self.warmup_size
-            window_end = -1
+            slice_start = None
+            slice_end = None
+
+            warmup_start_index = 0
+            window_start_index = self.warmup_size
+            window_end_index = -1
 
         return_data = SamplePattern(
             dfeatures=data_f.values.astype('float32'),
@@ -104,9 +110,9 @@ class MachFlowData(Dataset):
             dtargets=data_t.values.astype('float32'),
             coords=SampleCoords(
                 station=self.ds.station.isel(station=station).item(),
-                warmup_start_date=self.ds.time[warmup_start].dt.strftime('%Y-%m-%d').item(),
-                start_date=self.ds.time[window_start].dt.strftime('%Y-%m-%d').item(),
-                end_date=self.ds.time[window_end].dt.strftime('%Y-%m-%d').item(),
+                warmup_start_date=self.ds.time[warmup_start_index].dt.strftime('%Y-%m-%d').item(),
+                start_date=self.ds.time[window_start_index].dt.strftime('%Y-%m-%d').item(),
+                end_date=self.ds.time[window_end_index].dt.strftime('%Y-%m-%d').item(),
                 warmup_size=self.warmup_size
             )
         )
@@ -120,7 +126,7 @@ class MachFlowData(Dataset):
         target_mask = self.compute_target_mask(**isel).load()
         target_rolling_mask = target_mask.rolling(time=self.window_size).sum() >= self.window_min_count
         target_rolling_mask = target_rolling_mask.compute()
-        target_rolling_mask[{'time': slice(0, self.warmup_size + self.window_size)}] = False
+        target_rolling_mask[{'time': slice(0, self.warmup_size + self.window_size - 1)}] = False
 
         return target_rolling_mask
 
