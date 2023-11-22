@@ -8,6 +8,13 @@ from typing import Any, Callable
 
 TensorLike = np.ndarray[int, np.dtype[np.float32]] | torch.Tensor
 
+TORCH_DTYPES = {
+    'float16': torch.float16,
+    'float32': torch.float32,
+    'float': torch.float32,
+    'float64': torch.float64,
+}
+
 
 class Normalize(torch.nn.Module):
     """Normalization module.
@@ -32,13 +39,14 @@ class Normalize(torch.nn.Module):
 
         ...where C must correspond to the provided `means` and `stds` vector length.
 
-    """    
+    """
+
     def __init__(
             self,
             means: TensorLike,
             stds: TensorLike,
             features_dim: int = 0,
-            dtype: torch.dtype = torch.float32) -> None:
+            dtype: str = 'float32') -> None:
         """Initialize the Normelize module.
 
         Args:
@@ -47,12 +55,20 @@ class Normalize(torch.nn.Module):
             features_dim (int, optional): The dimension to normalize over. Corresponds to unbatched dimension of the
                 sample. If a sample has shape (channels=4, sequence=100), and (batch=10, channels=4, sequence=100), we
                 want to normalize over dim=0, as this is the feature dimension. Defaults to 0.
-            dtype (torch.dtype, optional): The data dtype. Defaults to torch.float32.
+            dtype (str, optional): The data dtype as string. Defaults to \'float32\'.
+                Technical note: don't change to torch dtypes such as `torch.float32` because these can't be saved
+                as hyperparameters.
         """
         super().__init__()
 
-        self.means = torch.as_tensor(means, dtype=dtype)
-        self.stds = torch.as_tensor(stds, dtype=dtype)
+        if dtype not in TORCH_DTYPES:
+            raise ValueError(
+                f'`dtype={dtype}` is not a valid dtype.'
+            )
+        torch_dtype = TORCH_DTYPES[dtype]
+
+        self.means = torch.as_tensor(means, dtype=torch_dtype)
+        self.stds = torch.as_tensor(stds, dtype=torch_dtype)
         self.dim = features_dim
 
     def forward(self, x: Tensor, invert: bool = False) -> Tensor:
@@ -84,7 +100,7 @@ class Normalize(torch.nn.Module):
 
         Returns:
             Tensor: The normalized tensor with same shape as input.
-        """        
+        """
         means, stds = self._expand_stats_to_x(x=x, is_batched=is_batched)
 
         return (x - means) / stds
@@ -111,7 +127,13 @@ class Normalize(torch.nn.Module):
     def get_normalize_args(
             ds: xr.Dataset,
             norm_variables: str | list[str],
-            dtype: torch.dtype = torch.float32) -> dict[str, Any]:
+            dtype: str = 'float32') -> dict[str, Any]:
+
+        if dtype not in TORCH_DTYPES:
+            raise ValueError(
+                f'`dtype={dtype}` is not a valid dtype.'
+            )
+        torch_dtype = TORCH_DTYPES[dtype]
 
         norm_variables = [norm_variables] if isinstance(norm_variables, str) else norm_variables
 
@@ -124,8 +146,8 @@ class Normalize(torch.nn.Module):
             stds.append(da.std().item())
 
         args = {
-            'means': torch.as_tensor(means, dtype=dtype),
-            'stds': torch.as_tensor(stds, dtype=dtype),
+            'means': torch.as_tensor(means, dtype=torch_dtype),
+            'stds': torch.as_tensor(stds, dtype=torch_dtype),
             'features_dim': 0,
             'dtype': dtype
         }
