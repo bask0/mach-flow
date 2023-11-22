@@ -19,11 +19,12 @@ class LSTM(LightningNet):
             num_lstm_layers: int = 1,
             num_outputs: int = 1,
             norm_args_features: dict | None = None,
-            norm_args_stat_features: dict | None = None) -> None:
+            norm_args_stat_features: dict | None = None,
+            norm_args_stat_targets: dict | None = None) -> None:
 
         super().__init__()
 
-        self.save_hyperparameters(ignore=['norm_args_features', 'norm_args_stat_features'])
+        self.save_hyperparameters()
 
         if norm_args_features is not None:
             self.norm_features = Normalize(**norm_args_features)
@@ -35,8 +36,8 @@ class LSTM(LightningNet):
         else:
             self.norm_stat_features = torch.nn.Identity()
 
-        if norm_args_stat_features is not None:
-            self.norm_targets = Normalize(**norm_args_stat_features)
+        if norm_args_stat_targets is not None:
+            self.norm_targets = Normalize(**norm_args_stat_targets)
         else:
             self.norm_targets = torch.nn.Identity()
 
