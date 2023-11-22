@@ -24,7 +24,7 @@ def study_plots(study: optuna.Study, out_dir: str):
     for optuna_plot in OPTUNA_PLOTS:
         try: 
             fig = getattr(optuna.visualization, optuna_plot)(study)
-            fig.write_image(os.path.join(out_dir, optuna_plot + '.png'), scale=3)
+            fig.write_image(os.path.join(out_dir, optuna_plot + '.png'), scale=5)
         except RuntimeError as e:
             print(
                 'The following RuntimeError was raised (and ignored) for plot \'{optuna_plot}\':\n', e
