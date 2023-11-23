@@ -267,6 +267,7 @@ class Tuner(object):
         self.exp_path_xval = os.path.join(self.log_dir, self.exp_name, self.model, 'xval')
         self.db_path_xval = os.path.join(self.exp_path_xval, 'optuna.db')
 
+        self.test_time_slice = self.get_test_slice(cli)
         self.best_config_path = None
 
     def new_study(self, db_path: str, is_tune: bool) -> optuna.Study:
@@ -378,5 +379,20 @@ class Tuner(object):
     def summarize_tuning(self) -> None:
         study_summary(study_path=self.db_path_tune, study_name=self.model)
 
+    @staticmethod
+    def get_test_slice(cli: 'MyLightningCLI') -> slice:
+        try:
+            test_range = cli.config['data']['init_args']['test_date_slice']
+        except KeyError as e:
+            raise KeyError(
+                'could not infer test set time range from config at `data.init_args.test_date_slice`.'
+            )
+
+        return slice(*test_range)    
+
     def plot_xval_cdf(self) -> None:
-        plot_xval_cdf(xval_dir=self.exp_path_xval, save_path=os.path.join(self.exp_path_xval, 'xval_perf.png'))
+        plot_xval_cdf(
+            xval_dir=self.exp_path_xval,
+            save_path=os.path.join(self.exp_path_xval, 'xval_perf.png'),
+            subset={'time': self.test_time_slice}
+        )
