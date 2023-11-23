@@ -24,7 +24,9 @@ def study_plots(study: optuna.Study, out_dir: str):
     for optuna_plot in OPTUNA_PLOTS:
         try: 
             fig = getattr(optuna.visualization, optuna_plot)(study)
-            fig.write_image(os.path.join(out_dir, optuna_plot + '.png'), scale=5)
+
+            fig.write_image(os.path.join(out_dir, optuna_plot + '.png'), scale=2)
+            fig.write_html(os.path.join(out_dir, optuna_plot + '.html'))
         except RuntimeError as e:
             print(
                 'The following RuntimeError was raised (and ignored) for plot \'{optuna_plot}\':\n', e
@@ -33,6 +35,8 @@ def study_plots(study: optuna.Study, out_dir: str):
             print(
                 'The following ValueError: was raised (and ignored) for plot \'{optuna_plot}\':\n', e
             )
+
+    create_html(dir=out_dir)
 
 def study_summary(study_path: str, study_name: str):
 
@@ -61,6 +65,7 @@ def plot_cdf(
         ours_name: str = 'ML (ours)',
         ref_name: str = 'PREVAH',
         save_path: str | None = None,
+        title_postfix: str = '',
         col: str = '#1E88E5',
         ref_col: str = '#D81B60') -> None:
     metrics = list(ds.data_vars)
@@ -74,7 +79,6 @@ def plot_cdf(
         gridspec_kw={'height_ratios': [10, 5]} if has_ref else {})
 
     annot_kwargs = dict(
-        xytext=(-20,+20), 
         textcoords='offset points', ha='center', va='bottom', color='0.2',
         fontsize=9
     )
@@ -90,6 +94,7 @@ def plot_cdf(
         ax.axvline(xloc, ymin=0, ymax=0.5, color=col, ls=':', alpha=0.7)
         ax.annotate(
             f'{xloc:0.2f}', xy=(xloc, 0.5),
+            xytext=(-40,+15),
             bbox=dict(boxstyle='round,pad=0.2', fc=col, ec='none', alpha=0.5),
             arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.2', color=col, alpha=0.7),
             **annot_kwargs)
@@ -101,6 +106,7 @@ def plot_cdf(
             ax.axvline(xloc_ref, ymin=0, ymax=0.5, color=ref_col, ls=':', alpha=0.7)
             ax.annotate(
                 f'{xloc_ref:0.2f}', xy=(xloc_ref, 0.5),
+                xytext=(-20,+40),
                 bbox=dict(boxstyle='round,pad=0.2', fc=ref_col, ec='none', alpha=0.5),
                 arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.2', color=ref_col, alpha=0.7),
                 **annot_kwargs)
@@ -117,7 +123,8 @@ def plot_cdf(
                     medianprops=dict(linestyle=':', linewidth=1.2, color='k'),
                     flierprops=dict(marker='.'),
                     notch=True,
-                    widths=0.4
+                    widths=0.4,
+                    showfliers=False,
             )
             # ax.axvline(0, color='k', ls=':', alpha=0.7)
             ax.set_xlabel(f'{name} difference')
@@ -160,12 +167,30 @@ def plot_cdf(
         axes[1, 0].set_ylabel('')
         axes[1, 0].set_yticks([])
 
-    fig.suptitle('Station-level model comparison')
+    fig.suptitle('Station-level model comparison' + title_postfix)
 
     fig.tight_layout()
 
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches='tight')
+
+
+def subset_to_label(subset: dict):
+    if len(subset) == 0:
+        label = ''
+    else:
+        label = ' ('
+        for i, (key, value) in enumerate(subset.items()):
+            if i > 0:
+                label += ', '
+            label += f'{key}='
+            if isinstance(value, slice):
+                label += f'{str(value.start)} - {str(value.stop)}'
+            else:
+                label += str(value)
+        label += ')'
+
+    return label
 
 
 def plot_xval_cdf(
@@ -196,5 +221,79 @@ def plot_xval_cdf(
         ds=met,
         ds_ref=met_ref,
         save_path=save_path,
+        title_postfix=subset_to_label(subset),
         **kwargs
     )
+
+
+
+head_string = \
+"""
+<head>
+    <title>Hyperparameter tuning</title>
+    <style>
+    img {
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 5px;
+        width: 150px;
+    }
+    
+    img:hover {
+        box-shadow: 0 0 2px 1px rgba(0, 140, 186, 0.5);
+    }
+    </style>
+</head>
+"""
+
+link_template = \
+"""
+<a target="_self" href="{}">
+    <img src="{}" alt="{}" style="width:300px">
+</a>
+"""
+
+body = \
+"""
+<body>
+    {}
+</body>
+"""
+
+html_string = """
+<!doctype html>
+<html>
+{}
+{}
+</html>
+"""
+
+from glob import glob
+import os
+
+
+def make_link(dir: str, plot: str) -> str:
+    link = link_template.format(os.path.join(dir, plot + '.html'), os.path.join(dir, plot + '.png'), plot)
+
+    return link
+
+
+def make_body(dir: str) -> str:
+    pattern = os.path.join(dir, '*.png')
+    plots = [os.path.basename(plot.split('.png')[0]) for plot in glob(pattern)]
+
+    links = ''
+    for plot in plots:
+        links += make_link(dir='./', plot=plot)
+
+
+    body_string = body.format(links)
+    combined = html_string.format(head_string.strip(), body_string.strip())
+
+    return combined
+
+
+def create_html(dir: str) -> None:
+    with open(os.path.join(dir, 'index.html'), 'w') as f:
+        f.write(make_body(dir=dir))
+
