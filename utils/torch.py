@@ -81,7 +81,7 @@ class Normalize(torch.nn.Module):
 
         Returns:
             Tensor: The (de)normalized tensor `x`.
-        """        
+        """
         if invert:
             return self.denormalize(x, is_batched=True)
         else:

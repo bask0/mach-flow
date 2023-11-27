@@ -140,7 +140,7 @@ class MachFlowData(Dataset):
         return self.ds[self.features].isel(**isel).to_array('variable')
 
     def get_stat_features(self, **isel) -> xr.DataArray | None:
-        if self.stat_features is None:
+        if len(self.stat_features) == 0:
             return None
         else:
             return self.ds[self.stat_features].isel(**isel).to_array('variable')
@@ -270,7 +270,7 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.seed = seed
 
         # Lazy-load zarr dataset.
-        self.ds = xr.open_zarr('/data/basil/harmonized_basins.zarr/')
+        self.ds = xr.open_zarr(self.machflow_data_path)
 
         # Drop all stations with all-NaN targets.
         if drop_all_nan_stations:
@@ -295,8 +295,8 @@ class MachFlowDataModule(pl.LightningDataModule):
             ds=train_data, norm_variables=self.targets
         )
         self.norm_args_stat_features = Normalize.get_normalize_args(
-            ds=train_data, norm_variables=[] if self.stat_features is None else self.stat_features
-        )
+            ds=train_data, norm_variables=self.stat_features
+        ) if self.stat_features is not None else None
 
     def get_dataset(self, mode: str) -> MachFlowData:
         """Returns a PyTorch Dataset of type MachFlowData.
