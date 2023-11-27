@@ -204,9 +204,9 @@ def get_exp_name() -> str:
     return exp_name
 
 
-def get_full_name(cli) -> str:
+def get_config_name(cli) -> str:
 
-    name = get_exp_name()
+    name = ''
 
     if cli.config['config'] is not None:
         for path in cli.config['config']:
@@ -217,6 +217,11 @@ def get_full_name(cli) -> str:
                     f'config files must have ending \'.yaml\', found {rel_path}.'
                 )
             name += '_' + file_name.split('.yaml')[0]
+
+        name = name.strip('_')
+
+    if name == '':
+        name = 'default'
 
     return name
 
@@ -248,7 +253,8 @@ class Tuner(object):
         self.sampler = sampler
         self.pruner = pruner
         self.log_dir = log_dir
-        self.exp_name = get_full_name(cli)
+        self.exp_name = get_exp_name()
+        self.config_name = get_config_name(cli)
         self.model = get_model_name_from_cli(cli)
         self.num_xval_folds = cli.config['data']['init_args']['num_cv_folds']
         self.overwrite = overwrite
@@ -261,10 +267,10 @@ class Tuner(object):
 
         self.search_space = search_spaces[self.model]
 
-        self.exp_path_tune = os.path.join(self.log_dir, self.exp_name, self.model, 'tune')
+        self.exp_path_tune = os.path.join(self.log_dir, self.exp_name, self.config_name, self.model, 'tune')
         self.db_path_tune = os.path.join(self.exp_path_tune, 'optuna.db')
 
-        self.exp_path_xval = os.path.join(self.log_dir, self.exp_name, self.model, 'xval')
+        self.exp_path_xval = os.path.join(self.log_dir, self.exp_name, self.config_name, self.model, 'xval')
         self.db_path_xval = os.path.join(self.exp_path_xval, 'optuna.db')
 
         self.test_time_slice = self.get_test_slice(cli)
