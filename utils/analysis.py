@@ -175,6 +175,140 @@ def plot_cdf(
         fig.savefig(save_path, dpi=300, bbox_inches='tight')
 
 
+def xval_station_metrics(
+        dir: str,
+        target: str = 'Qmm',
+        benchmark: str | None = 'prevah',
+        metrics=['bias', 'r', 'nse'],
+        **subset):
+    pattern = os.path.join(dir, '*', '*', 'xval')
+    paths = glob(pattern)
+
+    mets = []
+    names = []
+
+    for i, path in enumerate(paths):
+        name_ = path.split('/')
+        name = f'{name_[-2]}-{name_[-3]}' 
+        '-'.join(path.split('/')[-3:-1])
+        ds = load_xval_test_set(xval_dir=path).sel(**subset)
+
+        obs = ds[target]
+        mod = ds[target + '_mod']
+
+        met = compute_metrics(obs=obs, mod=mod, metrics=metrics, dim='time')
+        mets.append(met)
+        names.append(name)
+
+        if (i == 0) and (benchmark is not None):
+            bench = ds[f'{target}_{benchmark}']
+            met = compute_metrics(obs=obs, mod=bench, metrics=metrics, dim='time')
+            mets.append(met)
+            names.append(benchmark)
+
+    mets = xr.concat(mets, dim='run')
+    mets = mets.assign_coords(run=names)
+
+    return mets
+
+
+class ModelColors(object):
+    def __init__(self, cmap: str = 'tab10'):
+        self.cmap = plt.get_cmap(cmap)
+        self.i = 0
+
+    def __next__(self) -> tuple:
+        color = self.cmap(self.i)
+        self.i += 1
+        return color
+
+
+def plot_model_comp(
+        dir: str,
+        target: str = 'Qmm',
+        ref: str = 'prevah',
+        save_path: str | None = None,
+        title_postfix: str = '',
+        **subset
+    ):
+
+    ds = xval_station_metrics(dir=dir, target=target, benchmark=ref, metrics=['r', 'nse'], **subset)
+
+    metrics = list(ds.data_vars)
+    num_metrics = len(metrics)
+
+    fig, axes = plt.subplots(
+        2, num_metrics, figsize=(3 * num_metrics, 6), sharey='row', squeeze=False,
+        gridspec_kw={'height_ratios': [10, 5], 'hspace': 0.2})
+
+    for i, metric in enumerate(metrics):
+
+        da = ds[metric]
+        rel_metrics = da - da.sel(run=ref)
+        mcolors = ModelColors(cmap='tab10')
+
+        for run in da.run.values:
+
+            if run == ref:
+                col = 'k'
+            else:
+                col = next(mcolors)
+
+            # CDF plots
+            # ----------------
+            ax = axes[0, i]
+            ax.spines[['right', 'top']].set_visible(False)
+            ax.set_xlabel(metric)
+
+            bins, cdf, xloc = get_cdf(da.sel(run=run))
+
+            ax.plot(bins, cdf, label=run, color=col, alpha=0.8, lw=1.2)
+            ax.axvline(xloc, ymin=0, ymax=0.5, color=col, ls='--', alpha=0.8, lw=0.8)
+            ax.axhline(0.5, color='0.2', ls='--', alpha=0.8, lw=0.8)
+
+            if metric == 'nse':
+                ax.set_xlim(-1, 1)
+
+            # CDF plots
+            # ----------------
+            ax = axes[1, i]
+            ax.spines[['right', 'top']].set_visible(False)
+            ax.set_xlabel(f'{metric} difference')
+
+            if run == ref:
+                continue
+
+            da_rel = rel_metrics.sel(run=run)
+            bplot = ax.boxplot([da_rel.values], positions=[mcolors.i], vert=False, showfliers=False)
+
+            for el in bplot.keys():
+                for line in bplot[el]:
+                    line.set_color(col)
+
+
+    axes[0, 0].set_ylabel('Cummulative probability')
+    axes[0, 0].legend(frameon=False, fontsize=7)
+
+    for ax in axes[1, :]:
+        xmin, xmax = ax.get_xlim()
+        ax.axvline(0, color='0.2', ls=':', lw=0.8)
+        ax.text(
+            -(xmax- xmin) * 0.02, 1.5, f'{ref} better',
+            bbox=dict(boxstyle='larrow,pad=0.2',
+            fc='0.7', ec='none', alpha=0.4),
+            color='0.2',
+            va='center', ha='right', fontsize=9)
+
+    axes[1, 0].set_yticks([1, 2], [run for run in ds.run.values if run != ref], size=9)
+
+    fig.suptitle('Station-level model comparison' + title_postfix)
+
+    fig.tight_layout()
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+
+
 def subset_to_label(subset: dict):
     if len(subset) == 0:
         label = ''
