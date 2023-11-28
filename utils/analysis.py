@@ -299,7 +299,8 @@ def plot_model_comp(
             color='0.2',
             va='center', ha='right', fontsize=9)
 
-    axes[1, 0].set_yticks([1, 2], [run for run in ds.run.values if run != ref], size=9)
+    yticklabels = [run for run in ds.run.values if run != ref]
+    axes[1, 0].set_yticks(np.arange(1, len(yticklabels) + 1), yticklabels, size=9)
 
     fig.suptitle('Station-level model comparison' + title_postfix)
 
