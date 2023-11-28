@@ -19,6 +19,15 @@ def common_mask(
 
     return obs, mod
 
+def _bias(
+        obs: xr.DataArray,
+        mod: xr.DataArray,
+        dim: str | Iterable[str] | None) -> xr.DataArray:
+
+    bias = mod.mean(dim=dim, skipna=True) - obs.mean(dim=dim, skipna=True)
+
+    return bias.compute()
+
 def _mse(
         obs: xr.DataArray,
         mod: xr.DataArray,
@@ -75,6 +84,7 @@ def _kge(
     return (1 - value ** 0.5).compute()
 
 METRIC_MAPPING = dict(
+    bias={'func': _bias, 'name': 'Bias'},
     mse={'func': _mse, 'name': 'Mean squared error'},
     rmse={'func': _rmse, 'name': 'Root mean squared error'},
     nse={'func': _nse, 'name': 'Modeling efficiency'},
@@ -106,14 +116,14 @@ def compute_metrics(
             f'the following metrics are not implemented: `{"`, `".join(missing_metrics)}`'
         )
 
-    obs, mod = common_mask(obs=obs, mod=mod, dim=dim, drop_empty=drop_empty)
+    obs_da, mod_da = common_mask(obs=obs, mod=mod, dim=dim, drop_empty=drop_empty)
 
     ds = xr.Dataset()
 
     for metric in metrics:
         func = METRIC_MAPPING[metric]['func']
         name = METRIC_MAPPING[metric]['name']
-        da = func(obs=obs, mod=mod, dim=dim)
+        da = func(obs=obs_da, mod=mod_da, dim=dim)
         da.attrs['long_name'] = name
         ds[metric] = da
 
