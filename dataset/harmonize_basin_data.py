@@ -22,6 +22,42 @@ def pd2xr(x: pd.DataFrame, mach_id: str) -> xr.Dataset:
     return ds.expand_dims(station=[mach_id])
 
 
+def add_static(ds: xr.Dataset) -> xr.Dataset:
+    stat = read_rds(path='/data/william/data/RawFromMichael/obs/static/static_fields.rds')
+    stat = stat.pivot(index='mach_ID', columns='field', values='mean').rename(
+        columns=dict(
+            abb='soilti',
+            atb='areati',
+            btk='sdepth',
+            dhm='dhm',
+            exp='aspect',
+            glm='glmorph',
+            idh='area',
+            kwt='hcond',
+            pfc='fieldcap',
+            pus='landuse',
+            slp='slope',
+        )
+    ).drop(columns=[
+        'dom',
+        'ezg',
+        'mez',
+        'zon'
+    ]).reset_index('mach_ID').rename(
+        columns=dict(
+            mach_ID='station'
+        )
+    ).set_index('station')
+
+    stat = stat.to_xarray()
+    stat['station'] = stat['station'].astype('str')
+
+    for var in stat.data_vars:
+        ds[var] = stat[var].astype('float32')
+
+    return ds
+
+
 def main(zarr_path: str = '/data/basil/harmonized_basins.zarr'):
     logger.info('Harmonizing PREVAH data')
     logger.info('-' * 79)
@@ -85,6 +121,8 @@ def main(zarr_path: str = '/data/basil/harmonized_basins.zarr'):
                 }
             }
         )
+
+    ds = add_static(ds)
 
     ds.to_zarr(zarr_path, mode='w', encoding=encoding)
 
