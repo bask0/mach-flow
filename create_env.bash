@@ -25,6 +25,7 @@ mamba create --yes --name $ENVNAME python=3.10 \
     pandas xarray dask netcdf4 zarr \
     matplotlib seaborn cartopy plotly \
     jupyterlab nodejs pymysql \
+    pvlib-python \
     -c pytorch -c nvidia \
     || { echo '>>> Creating environment failed.'; exit 1; }
 
