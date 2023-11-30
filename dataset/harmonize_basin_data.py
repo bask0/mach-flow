@@ -1,8 +1,11 @@
+import argparse
 import xarray as xr
 import pandas as pd
+import numpy as np
 from tqdm import tqdm
 import os
 from glob import glob
+import pvlib
 
 from utils.data import read_rds
 from utils.logging import get_logger
@@ -58,23 +61,48 @@ def add_static(ds: xr.Dataset) -> xr.Dataset:
     return ds
 
 
-def main(zarr_path: str = '/data/basil/harmonized_basins.zarr'):
+def add_clearsky_rad(ds : xr.Dataset) -> xr.Dataset:
+    ds['Prad'] = xr.full_like(ds['P'], np.nan).compute()
+    for station in tqdm(ds.station, ncols=100, desc='>>> Add Clearsky radiation'):
+        height = ds.sel(station=station).dhm.item()
+        loc = pvlib.location.Location(46.8182, 8.2275, altitude=height, tz='Etc/GMT+1')
+
+        rad = loc.get_clearsky(
+            times=pd.date_range(
+                start=ds.indexes['time'][0],
+                end=ds.indexes['time'][-1] + pd.Timedelta('1D'),
+                freq='H',
+                inclusive='left'
+            )
+        )
+        rad = rad['ghi'].to_xarray()
+
+        ds['Prad'].loc[{'station': station}] = rad.resample(index='D').mean().values
+
+    return ds
+
+
+def main(zarr_path: str, exclude_clearsky: bool):
     logger.info('Harmonizing PREVAH data')
     logger.info('-' * 79)
 
-    prevah_basins = [
-        os.path.basename(basin).split('.')[0] for basin in glob('/data/william/data/RawFromMichael/obs/prevah/*.rds')
+    # CHANGE PATH BACK!!
+    # obs_basins = [
+    #     os.path.basename(basin).split('.')[0] for basin in glob('/data/william/data/RawFromMichael/obs/prevah/*.rds')
+    # ]
+    obs_basins = [
+        os.path.basename(basin).split('.')[0] for basin in glob('/data/william/data/RawFromMichael/obs/with_q/*.rds')
     ]
     do_basins = list(read_rds(
         path='/data/william/data/RawFromMichael/droughtch_operational_catchments/drought_IDs.rds'
     ).mach_ID.values)
-    prevah_basins_is_do = [basin in do_basins for basin in prevah_basins]
+    obs_basins_is_do = [basin in do_basins for basin in obs_basins]
 
-    logger.info(f'PREVAH ({len(prevah_basins)}) and drought operational ({len(do_basins)}) basin lists loaded')
+    logger.info(f'PREVAH ({len(obs_basins)}) and drought operational ({len(do_basins)}) basin lists loaded')
 
     station_list = []
 
-    for mach_id in tqdm(prevah_basins, ncols=100, desc='>>> Load stations'):
+    for mach_id in tqdm(obs_basins, ncols=100, desc='>>> Load stations'):
 
         prevah = pd2xr(
             x=read_rds(
@@ -82,6 +110,15 @@ def main(zarr_path: str = '/data/basil/harmonized_basins.zarr'):
             ).drop(columns=['Qm3s', 'Qls', 'Qmm', 'source']),
             mach_id=mach_id
         )
+
+        additional_vars = []
+        for var in ['Tmin', 'Tmax', 'Srel', 'direct']:
+            path = f'/data/william/data/RawFromMichael/obs/additional_meteoswiss/{var}/binary/{mach_id}.rds'
+            additional_vars.append(pd2xr(x=read_rds(path=path), mach_id=mach_id))
+        additional_vars = xr.merge(additional_vars)
+        additional_vars = additional_vars.rename({'direct': 'Drad'})
+
+        prevah = xr.merge((prevah, additional_vars))
 
         prevah_sim = pd2xr(
             x=read_rds(
@@ -108,7 +145,7 @@ def main(zarr_path: str = '/data/basil/harmonized_basins.zarr'):
     logger.info(f'PREVAH featurtes, target, and simulations loaded.')
 
     ds = xr.concat(station_list, dim='station')
-    ds = ds.assign_coords(do_subset=('station', prevah_basins_is_do))
+    ds = ds.assign_coords(do_subset=('station', obs_basins_is_do))
 
     ds['station'] = ds.station.astype(str)
 
@@ -124,9 +161,17 @@ def main(zarr_path: str = '/data/basil/harmonized_basins.zarr'):
 
     ds = add_static(ds)
 
+    if not exclude_clearsky:
+        ds = add_clearsky_rad(ds)
+
     ds.to_zarr(zarr_path, mode='w', encoding=encoding)
 
     logger.info(f'PREVAH data harmonized and saved to \'{zarr_path}\'.')
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-o', '--out_path', type=str, default='/data/basil/harmonized_basins.zarr')
+    parser.add_argument('--exclude_clearsky', action='store_true')
+    args = parser.parse_args()
+
+    main(zarr_path=args.out_path, exclude_clearsky=args.exclude_clearsky)
