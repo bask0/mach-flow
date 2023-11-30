@@ -48,7 +48,7 @@ data:
     num_cv_folds: 6
     fold_nr: 0
     train_date_slice:
-    - "1961-01-01"
+    - "1971-01-01"
     - "1998-12-31"
     valid_date_slice:
     - "1999-01-01"
@@ -57,7 +57,7 @@ data:
     - "2009-01-01"
     - "2023-04-30"
     predict_date_slice:
-    - "1961-01-01"
+    - "1971-01-01"
     - "2023-04-30"
     batch_size: 10
     num_workers: 0
