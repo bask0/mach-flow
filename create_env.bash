@@ -22,10 +22,11 @@ mamba remove --yes --name $ENVNAME --all \
 mamba create --yes --name $ENVNAME python=3.10 \
     pytorch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 pytorch-cuda=11.7 pytorch-lightning \
     numpy scikit-learn optuna \
-    pandas xarray dask netcdf4 zarr \
+    pandas xarray dask netcdf4 zarr geopandas \
     matplotlib seaborn cartopy plotly \
     jupyterlab nodejs pymysql \
     pvlib-python \
+    imagemagick \
     -c pytorch -c nvidia \
     || { echo '>>> Creating environment failed.'; exit 1; }
 
