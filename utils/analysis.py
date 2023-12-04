@@ -263,7 +263,7 @@ def plot_model_comp(
             bins, cdf, xloc = get_cdf(da.sel(run=run))
 
             zorder = 1 if run == ref else 2
-            ax.plot(bins, cdf, label=run, color=col, alpha=0.8, lw=0.8, zorder=zorder)
+            ax.plot(bins, cdf, label=run, color=col, alpha=0.6, lw=1.2, zorder=zorder)
             ax.axvline(xloc, ymin=0, ymax=0.5, color=col, ls='--', alpha=0.8, lw=0.8)
             ax.axhline(0.5, color='0.2', ls='--', alpha=0.8, lw=0.8)
 
