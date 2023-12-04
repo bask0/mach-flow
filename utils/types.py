@@ -10,13 +10,16 @@ class SampleCoords:
     end_date: str
     warmup_size: int
 
+
 @dataclass
 class SamplePattern:
     """Class defining MachFlowData return pattern."""
     dfeatures: np.ndarray
     dtargets: np.ndarray
     coords: SampleCoords
+    qstd: np.ndarray
     sfeatures: np.ndarray | None = None
+
 
 @dataclass
 class BatchCoords:
@@ -33,6 +36,7 @@ class BatchPattern:
     dfeatures: Tensor
     dtargets: Tensor
     coords: BatchCoords
+    qstd: Tensor
     sfeatures: Tensor | None = None
 
 
