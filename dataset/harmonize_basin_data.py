@@ -27,22 +27,21 @@ def pd2xr(x: pd.DataFrame, mach_id: str) -> xr.Dataset:
 
 def add_static(ds: xr.Dataset) -> xr.Dataset:
     stat = read_rds(path='/data/william/data/RawFromMichael/obs/static/static_fields.rds')
-    stat = stat.pivot(index='mach_ID', columns='field', values='mean').rename(
-        columns=dict(
-            abb='soilti',
-            atb='areati',
-            btk='sdepth',
-            dhm='dhm',
-            exp='aspect',
-            glm='glmorph',
-            idh='area',
-            kwt='hcond',
-            pfc='fieldcap',
-            pus='landuse',
-            slp='slope',
-        )
-    ).drop(columns=[
+
+    # abb = soil topographic index
+    # atb = hydraulic topographic index
+    # btk = soil depth
+    # dhm = digital heigt model
+    # glm = glacier morphology
+    # kwt = hydraulic conductivity
+    # pfc = sotrage capacity
+    # pus = landuse classified
+    # slp = slope
+
+    stat = stat.pivot(index='mach_ID', columns='field', values='mean').drop(columns=[
         'dom',
+        'exp',
+        'idh',
         'ezg',
         'mez',
         'zon'
@@ -82,7 +81,7 @@ def add_clearsky_rad(ds : xr.Dataset) -> xr.Dataset:
     return ds
 
 
-def main(zarr_path: str, exclude_clearsky: bool):
+def main(zarr_path: str, include_clearsky: bool):
     logger.info('Harmonizing PREVAH data')
     logger.info('-' * 79)
 
@@ -161,7 +160,7 @@ def main(zarr_path: str, exclude_clearsky: bool):
 
     ds = add_static(ds)
 
-    if not exclude_clearsky:
+    if include_clearsky:
         ds = add_clearsky_rad(ds)
 
     ds.to_zarr(zarr_path, mode='w', encoding=encoding)
@@ -171,7 +170,7 @@ def main(zarr_path: str, exclude_clearsky: bool):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-o', '--out_path', type=str, default='/data/basil/harmonized_basins.zarr')
-    parser.add_argument('--exclude_clearsky', action='store_true')
+    parser.add_argument('--include_clearsky', action='store_true')
     args = parser.parse_args()
 
-    main(zarr_path=args.out_path, exclude_clearsky=args.exclude_clearsky)
+    main(zarr_path=args.out_path, include_clearsky=args.include_clearsky)
