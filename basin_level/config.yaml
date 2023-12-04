@@ -34,12 +34,12 @@ data:
     targets:
     - Qmm
     stat_features:
-    - P_mon_std
-    - P_std
-    - P_mean
-    - T_mon_std
-    - T_std
-    - T_mean
+    - 'dom'
+    - 'exp'
+    - 'idh'
+    - 'ezg'
+    - 'mez'
+    - 'zon'
     train_window_size: 730
     window_min_count: 1
     train_num_samples_per_epoch: 10
@@ -48,16 +48,16 @@ data:
     num_cv_folds: 6
     fold_nr: 0
     train_date_slice:
-    - "1971-01-01"
-    - "1998-12-31"
+    - "1961-01-01"
+    - "2006-12-31"
     valid_date_slice:
-    - "1999-01-01"
-    - "2008-12-31"
+    - "2007-01-01"
+    - "2011-12-31"
     test_date_slice:
-    - "2009-01-01"
+    - "2012-01-01"
     - "2023-04-30"
     predict_date_slice:
-    - "1971-01-01"
+    - "1961-01-01"
     - "2023-04-30"
     batch_size: 10
     num_workers: 0
