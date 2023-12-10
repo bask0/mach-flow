@@ -6,14 +6,16 @@ from utils.torch import Normalize, Transform
 from utils.torch_modules import FeedForward
 
 
+# TODO: drop encoding
+
 class LSTM(LightningNet):
     """LSTM based rainfall-runoff module."""
     def __init__(
             self,
             num_static_in: int,
             num_dynamic_in: int,
-            num_enc: int = 4,
-            enc_dropout: float = 0.1,
+            num_enc: int = 16,
+            enc_dropout: float = 0.0,
             num_enc_layers: int = 1,
             num_hidden: int = 32,
             num_lstm_layers: int = 1,
