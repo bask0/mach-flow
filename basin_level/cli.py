@@ -44,6 +44,6 @@ if __name__ == '__main__':
         pruner=pruner,
         )
 
-    tuner.tune(n_trials=80)
+    tuner.tune(n_trials=50)
 
     tuner.xval()
