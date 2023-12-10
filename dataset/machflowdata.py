@@ -106,6 +106,7 @@ class MachFlowData(Dataset):
 
         return_data = SamplePattern(
             dfeatures=data_f.values.astype('float32'),
+            targetstd=data_t.std('time').values.astype('float32'),
             sfeatures=None if data_s is None else data_s.values.astype('float32'),
             dtargets=data_t.values.astype('float32'),
             coords=SampleCoords(
@@ -147,6 +148,7 @@ class MachFlowData(Dataset):
 
     def get_targets(self, **isel) -> xr.DataArray:
         return self.ds[self.targets].isel(**isel).to_array('variable')
+    
 
     def check_vars_in_ds(self, ds: xr.Dataset, variables: str | list[str]) -> None:
         variables = [variables] if isinstance(variables, str) else variables
@@ -214,7 +216,7 @@ class MachFlowDataModule(pl.LightningDataModule):
             train_num_samples_per_epoch: int = 1,
             warmup_size=365,
             drop_all_nan_stations: bool = True,
-            num_cv_folds: int = 6,
+            num_cv_folds: int = 8,
             fold_nr: int = 0,
             train_date_slice: list[str | None] = [None, None],
             valid_date_slice: list[str | None] = [None, None],
@@ -283,7 +285,7 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.rs = np.random.RandomState(seed)
 
         # Split basins into training, validation, and test set.
-        self.train_basins, self.val_basins, self.test_basins = self.split_basins(basins=stations)
+        self.train_basins, self.val_basins, self.test_basins = self.split_basins(basins=stations, folds=self.ds.folds)
         self.predict_basins = self.ds.station.values
         self.add_cv_set_ids()
 
@@ -297,6 +299,9 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.norm_args_stat_features = Normalize.get_normalize_args(
             ds=train_data, norm_variables=self.stat_features
         ) if self.stat_features is not None else None
+
+        # Add target std for NSE*calculation
+        self.ds['targetstd'] = self.ds.sel(time=self.train_date_slice)[self.targets].to_array().std('time')
 
     def get_dataset(self, mode: str) -> MachFlowData:
         """Returns a PyTorch Dataset of type MachFlowData.
@@ -416,14 +421,15 @@ class MachFlowDataModule(pl.LightningDataModule):
 
     def split_basins(
             self,
-            basins: list[str]) -> tuple[list[str], list[str], list[str]]:
+            basins: list[str],
+            folds: xr.DataArray | None = None) -> tuple[list[str], list[str], list[str]]:
         """Split and return the basins/statinos.
 
         Args:
             basins (list[str]): A list of basin IDs.
-            train_frac (float): Training set size relative to validation and test set.
-            val_frac (float): Validation set size relative to training and test set.
-            test_frac (float): Test set size relative to training and test validation.
+            folds (xr.DataArray, optional): An xarray.DataArray containing fold IDs. If not passed, the stations
+                are split randomly into `self.num_cv_folds` groups. The fold ID is -1 for `not valid`, and
+                0 to self.num_cv_folds - 1 for the folds. Default is None.
 
         Returns:
             tuple[list[str], list[str], list[str]]: The training, validation, and test basin IDs.
@@ -434,8 +440,19 @@ class MachFlowDataModule(pl.LightningDataModule):
                 f'\'fold_nr\' must be in range [0, {self.num_cv_folds}), is {self.fold_nr}.'
             )
 
-        basins = list(self.rs.permutation(basins))
-        groups = np.array_split(basins, self.num_cv_folds)
+        if folds is None:
+            basins = list(self.rs.permutation(basins))
+            groups = np.array_split(basins, self.num_cv_folds)
+        else:
+            folds = folds.sel(station=basins).load()
+            for fold in range(self.num_cv_folds):
+                if (folds==fold).sum() < 1:
+                    raise RuntimeError(
+                        f'At least one fold ID ({fold}) is not present in the `folds` DataArray. '
+                        f'For `num_cv_folds={self.num_cv_folds}`, folds from 0 to {self.num_cv_folds-1} are '
+                        'expected. Note that some stations may have be dropped due to missing data.'
+                    )
+            groups = [folds.where(folds==fold, drop=True).station.values for fold in range(self.num_cv_folds)]
 
         folds = {i for i in range(self.num_cv_folds)}
         valid_folds = {self.fold_nr % self.num_cv_folds}
