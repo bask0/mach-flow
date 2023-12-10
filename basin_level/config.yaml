@@ -6,7 +6,7 @@ trainer:
     - class_path: pytorch_lightning.callbacks.EarlyStopping
       init_args:
         monitor: 'val_loss'
-        patience: 10
+        patience: 15
         min_delta: 0.0
         mode: 'min'
     - class_path: pytorch_lightning.callbacks.TQDMProgressBar
@@ -19,6 +19,7 @@ trainer:
         filename: 'best'
         save_last: true
         save_top_k: 1
+  gradient_clip_val: 1.0
   fast_dev_run: false
   max_steps: -1
   overfit_batches: 0.0
@@ -34,12 +35,16 @@ data:
     targets:
     - Qmm
     stat_features:
-    - 'dom'
-    - 'exp'
-    - 'idh'
-    - 'ezg'
-    - 'mez'
-    - 'zon'
+    - 'abb'
+    - 'atb'
+    - 'btk'
+    - 'dhm'
+    - 'glm'
+    - 'kwt'
+    - 'pfc'
+    - 'slp'
+    - 'area'
+    # - 'pus'
     train_window_size: 730
     window_min_count: 1
     train_num_samples_per_epoch: 10
@@ -65,5 +70,5 @@ data:
 optimizer:
   class_path: torch.optim.AdamW
   init_args:
-    lr: 0.001
-    weight_decay: 0.001
+    lr: 0.01
+    weight_decay: 0.01
