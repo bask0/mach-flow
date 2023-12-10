@@ -107,6 +107,94 @@ class BetaNLLLoss(nn.Module):
         return loss
 
 
+class NSELoss(nn.Module):
+
+    def __init__(self, reduction: str = 'mean', constant: float = 0.1) -> None:
+        r"""Creates NSE* criterion (not NSE, see details below)
+
+        NSE* is based on the Nash-Sutcliffe Modelling Efficiency Coefficient. The NSE* loss is based on
+        Kratzert et al. (2019): doi: 10.5194/hess-23-5089-2019
+
+        Instead of ranging from -inf to 1, it ranges from 0 to inf and 0 is the optimum (i.e., we can still use
+        minimization).
+
+        It is calculated as `NSE* = 1 / N  (y_hat - y) ** 2 / (s(b) + e) ** 2`, where N is the number of samples,
+        s(b) is the standard deviation of the observed basin runoff based on the training period, and e is a constant 
+        term used to avoid exploding loss with small basin variance.
+
+        The NSE* is calculated sample-wise first and then averaged across batch elements (samples).
+
+        Notes:
+            The NSE above zero indicates better performance than taking the mean of the observations.
+
+        Args:
+            reduction: Specifies the reduction to apply to the output. This arguments is used htere for compatibility
+                and takes no effect. If another argument than 'mean' is passed, an error is raised. This is because
+                the NSE must computed per sample first.
+            constant: the constant term added to the basin standard deviation, default is 0.1 as in the source.
+
+        Shape:
+            - mean: (batch_size, ...).
+            - target: (batch_size, ...), same shape as the mean.
+            - output: scalar.
+        """
+        super().__init__()
+
+        if reduction != 'mean':
+            raise ValueError(
+                'invalid argument: reduction must be \'mean\'.'
+            )
+
+        self.constant = constant
+
+    @staticmethod
+    def unsqueeze_like(x: torch.Tensor, ref: torch.Tensor):
+        n_unsqueezes = ref.ndim - x.ndim
+        if n_unsqueezes == 0:
+            return x
+        else:
+            return x[(...,) + (None,) * n_unsqueezes]
+
+    @staticmethod
+    def sigmoid_k(x: Tensor, mu: float, s: float) -> Tensor:
+        return (1. / (1. + torch.exp(-(x - mu) / s)))
+
+    def forward(
+            self,
+            input: Tensor,
+            target: Tensor,
+            basin_std: Tensor) -> Tensor:
+        """Compute the NSE losss.
+
+        Args:
+            mean: Predicted mean of shape (B, ...)
+            target: Target of shape (B, ...)
+            basin_std: The basin standard deviation, a Tensor of shape (B,).
+
+        Returns:
+            Loss per batch element of shape B
+        """
+
+        mask = target.isfinite()
+        red_dims = tuple(range(1, mask.ndim))
+
+        basin_norm = (self.unsqueeze_like(basin_std, mask) + self.constant) ** 2
+
+        target = target.where(mask, input)
+        element_err = (target - input) ** 2
+        element_err /= basin_norm
+
+        element_num_valid = mask.sum(red_dims)
+        element_weight = self.sigmoid_k(x=element_num_valid, mu=100, s=20)
+
+        batch_err = element_err.sum(red_dims) / element_num_valid
+
+        err = (batch_err * element_weight).sum() / element_weight.sum()
+
+        return err
+        return batch_err.mean()
+
+
 class RegressionLoss(nn.Module):
     """Loss functions that ignore NaN in target.
     The loss funtion allows for having missing / non-finite values in the target.
@@ -145,10 +233,11 @@ class RegressionLoss(nn.Module):
         """Initialize RegressionLoss.
         
         Args:
-            criterion : str (``'l1'`` | ``'l2'`` | ``'huber'`` | ``'betanll'``)
+            criterion : str (``'l1'`` | ``'l2'`` | ``'huber'`` | ``'nse'`` | ``'betanll'``)
                 ``'l1'`` for Mean Absolute Error (MAE),
                 ``'l2'`` for Mean Squared Error (MSE),
                 ``'huber'`` for Huber loss (mix of l1 and l2),
+                ``'nse'`` for Nash-Sutcliffe modelling efficiency coefficient (NSE),
                 ``'betanll'`` beta-weighted negative log likelihood (NLL).
             sample_wise : bool
                 Whether to calculate sample-wise loss first and average then (`True`, default) or to
@@ -165,9 +254,10 @@ class RegressionLoss(nn.Module):
 
         criterion = criterion.lower()
 
-        if criterion not in ('l1', 'l2', 'huber', 'betanll'):
+        if criterion not in ('l1', 'l2', 'huber', 'nse', 'betanll'):
             raise ValueError(
-                f'argument `criterion` must be one of (\'l1\' | \'l2\', | \'huber\' | \'betanll\'), is \'{criterion}\`.'
+                f'argument `criterion` must be one of '
+                '(\'l1\' | \'l2\', | \'huber\' | \'nse\' | \'betanll\'), is \'{criterion}\'.'
             )
 
         self.criterion = criterion
@@ -178,15 +268,28 @@ class RegressionLoss(nn.Module):
             loss_fn_args.update(dict(beta=beta))
         elif self.criterion == 'huber':
             loss_fn_args.update(dict(delta=0.3))
+        elif self.criterion == 'nse':
+            loss_fn_args.update(dict(reduction='mean'))
+        elif (self.criterion == 'nse') and (not self.sample_wise):
+            raise ValueError(
+                'Cannot use criterion \'nse\' with sample_wise being False, as the mean observations '
+                'must be calculated per sample. Use `sample_wise=True` with NSE.'
+            )
 
         self.loss_fn = {
             'l1': nn.L1Loss,
             'l2': nn.MSELoss,
             'huber': nn.HuberLoss,
+            'nse': NSELoss,
             'betanll': BetaNLLLoss,
         }[self.criterion](**loss_fn_args)
 
-    def forward(self, input: Tensor, target: Tensor, variance: Tensor | None = None) -> Tensor:
+    def forward(
+            self,
+            input: Tensor,
+            target: Tensor,
+            variance: Tensor | None = None,
+            basin_std: Tensor | None = None) -> Tensor:
         """Forward call, calculate loss from input and target, must have same shape.
 
         Args:
@@ -194,6 +297,8 @@ class RegressionLoss(nn.Module):
             target: Target of shape (B x ...)
             variance: Predicted variance of shape (B x ...). Only needed / allowed
                 with `criterion`=``'betanll'``
+            basin_std: The observation time series standard deviation with shape (B, ). Exclusively required
+                for 'nse' criterion.
 
         Returns:
             The loss, a scalar.
@@ -209,6 +314,14 @@ class RegressionLoss(nn.Module):
                 raise ValueError(
                     f'argument `variance` not allowed with `criterion`=\'{self.criterion}\'.'
                 )
+
+        if self.criterion == 'nse':
+            if basin_std is None:
+                raise ValueError(
+                    'argument `basin_std` required with `criterion`=\'nse\'.'
+                )
+
+            return self.loss_fn(input=input, target=target, basin_std=basin_std)
 
         mask = target.isfinite()
         # By setting target to input for NaNs, we set gradients to zero.
