@@ -58,7 +58,8 @@ class LightningNet(pl.LightningModule):
 
         super().__init__()
 
-        self.loss_fn = RegressionLoss(criterion='l1', sample_wise=False)
+        #self.loss_fn = RegressionLoss(criterion='nse', sample_wise=True)
+        self.loss_fn = RegressionLoss(criterion='l2', sample_wise=False)
 
     def shared_step(
             self,
@@ -86,9 +87,15 @@ class LightningNet(pl.LightningModule):
         num_cut = batch.coords.warmup_size[0]
         batch_size = target_hat.shape[0]
 
+        # loss = self.loss_fn(
+        #     input=target_hat[..., num_cut:],
+        #     target=batch.dtargets[..., num_cut:],
+        #     basin_std=batch.targetstd
+        # )
+
         loss = self.loss_fn(
             input=target_hat[..., num_cut:],
-            target=batch.dtargets[..., num_cut:]
+            target=batch.dtargets[..., num_cut:],
         )
 
         preds = ReturnPattern(
@@ -274,7 +281,10 @@ class MyLightningCLI(LightningCLI):
         super().__init__(*args, **kwargs)
 
     def add_arguments_to_parser(self, parser):
-        parser.add_argument('--dev', action='store_true', help='quick dev run with one epoch and 1 batch.')
+        parser.add_argument(
+            '--dev', action='store_true', help='quick dev run with one epoch and 1 batch.')
+        parser.add_argument(
+            '--skip_tuning', action='store_true', help='skip tuning and do xval; tuning must be present.')
         parser.link_arguments(
             'data.num_sfeatures', 'model.init_args.num_static_in', apply_on='instantiate')
         parser.link_arguments(
@@ -380,7 +390,8 @@ def cli_main(
     trial.set_user_attr(
         'epoch', cli.trainer.current_epoch)
 
-    val_loss = cli.trainer.callback_metrics['val_loss'].item()
+    # val_loss = cli.trainer.callback_metrics['val_loss'].item()
+    val_loss = cli.trainer.early_stopping_callback.best_score.item()
 
     if not is_tune:
         model = type(cli.model).load_from_checkpoint(cli.best_checkpoint_dir)
