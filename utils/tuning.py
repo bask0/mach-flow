@@ -248,6 +248,7 @@ class Tuner(object):
         cli = get_dummy_cli()
 
         self.is_dev = cli.config['dev']
+        self.skip_tuning = cli.config['skip_tuning']
         search_spaces = get_search_spaces()
 
         self.sampler = sampler
@@ -337,6 +338,14 @@ class Tuner(object):
         return objective
 
     def tune(self, n_trials: int, **kwargs) -> None:
+
+        if self.skip_tuning:
+            logger.warning('Tuning is skipped ue to \'--skip_tuning\'.')
+            if not os.path.exists(self.exp_path_tune):
+                raise RuntimeError(
+                    'no tuning path found but \'--skip_tuning\'. Did you run tuning beforehand?'
+                )
+            return
 
         if self.is_dev:
             logger.warning('Setting `n_trials=2` for dev run.')
