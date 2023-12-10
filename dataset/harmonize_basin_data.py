@@ -1,6 +1,7 @@
 import argparse
 import xarray as xr
 import pandas as pd
+import geopandas as gpd
 import numpy as np
 from tqdm import tqdm
 import os
@@ -28,6 +29,10 @@ def pd2xr(x: pd.DataFrame, mach_id: str) -> xr.Dataset:
 def add_static(ds: xr.Dataset) -> xr.Dataset:
     stat = read_rds(path='/data/william/data/RawFromMichael/obs/static/static_fields.rds')
 
+    # Fix data issue:
+    stat = read_rds(path='/data/william/data/RawFromMichael/obs/static/static_fields.rds')
+    stat = stat[stat['field.y'] == 'abb'].rename(columns={'field.x': 'field'})
+
     # abb = soil topographic index
     # atb = hydraulic topographic index
     # btk = soil depth
@@ -39,12 +44,7 @@ def add_static(ds: xr.Dataset) -> xr.Dataset:
     # slp = slope
 
     stat = stat.pivot(index='mach_ID', columns='field', values='mean').drop(columns=[
-        'dom',
         'exp',
-        'idh',
-        'ezg',
-        'mez',
-        'zon'
     ]).reset_index('mach_ID').rename(
         columns=dict(
             mach_ID='station'
@@ -56,6 +56,22 @@ def add_static(ds: xr.Dataset) -> xr.Dataset:
 
     for var in stat.data_vars:
         ds[var] = stat[var].astype('float32')
+
+    # Add basin area.
+    sf = gpd.read_file('/data/william/data/RawFromMichael/obs/shapefile/shape_tabsd.shp').set_index('mach_ID').to_xarray()
+    ds['area'] = sf.Shape_Area.sel(mach_ID=ds.station)
+
+    ds = ds.drop('mach_ID')
+
+    return ds
+
+
+def add_folds(ds: xr.Dataset) -> xr.Dataset:
+    folds = pd.read_csv('/data/william/data/Toy3/Toy3_8foldCV.csv')
+    ds['folds'] = xr.full_like(ds.abb, -1, dtype=int)
+
+    for mach_id, fold in zip(folds.mach_id, folds.fold):
+        ds['folds'].loc[{'station': mach_id}] = fold
 
     return ds
 
@@ -159,6 +175,8 @@ def main(zarr_path: str, include_clearsky: bool):
         )
 
     ds = add_static(ds)
+
+    ds = add_folds(ds)
 
     if include_clearsky:
         ds = add_clearsky_rad(ds)
