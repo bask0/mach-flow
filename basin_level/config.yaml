@@ -50,7 +50,7 @@ data:
     train_num_samples_per_epoch: 10
     warmup_size: 365
     drop_all_nan_stations: true
-    num_cv_folds: 6
+    num_cv_folds: 8
     fold_nr: 0
     train_date_slice:
     - "1961-01-01"
@@ -72,3 +72,12 @@ optimizer:
   init_args:
     lr: 0.01
     weight_decay: 0.01
+criterion:
+  name: quantile
+  log_transform: true
+  inference_taus:
+  - 0.05
+  - 0.25
+  - 0.5
+  - 0.75
+  - 0.9
