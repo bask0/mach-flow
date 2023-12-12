@@ -107,6 +107,89 @@ class BetaNLLLoss(nn.Module):
         return loss
 
 
+class BaseQLoss(nn.Module):
+    def __init__(self, reduction='none') -> None:
+        r"""Creates element-wise distribution-based loss without reduction. Must be subclassed.
+
+        Note: The error function `error_function` mut be overridden in the subclass.
+
+        Shape:
+            - mean: (batch_size, ...).
+            - target: (batch_size, ...), same shape as the mean.
+            - output: (batch_size, ...), same shape as the mean.
+
+        Args:
+            reduction: for compatibility, has no effect.
+        """
+        super().__init__()
+
+    def forward(
+            self,
+            input: Tensor,
+            target: Tensor,
+            tau: float | Tensor) -> Tensor:
+        """Compute the losss.
+
+        Args:
+            input: Predicted mean of shape (B, ...)
+            target: Target of shape (B, ...)
+            tau: The probability to evaluate, in range [0, 1].
+
+        Returns:
+            Loss per batch element of shape (B, ...)
+        """
+
+        if not (0.0 <= tau <= 1.0):
+            raise ValueError(
+                f'argument `tau` is out of range [0, 1] with `tau`={tau}`'
+            )
+
+        err = self.error_function(input=input, target=target, tau=tau)
+
+        return err
+
+    def error_function(self, input: Tensor, target: Tensor, tau: float | Tensor) -> Tensor:
+        raise NotImplementedError(
+            '`err_fun` must be defined in subclass.'
+        )
+
+
+class QLoss(BaseQLoss):
+
+    def __init__(self, reduction='none') -> None:
+        r"""Creates element-wise quantile loss without reduction.
+
+        Shape:
+            - mean: (batch_size, ...).
+            - target: (batch_size, ...), same shape as the mean.
+            - output: (batch_size, ...), same shape as the mean.
+        """
+        super().__init__()
+
+    def error_function(self, input: Tensor, target: Tensor, tau: float | Tensor) -> Tensor:
+        err = target - input
+        err = torch.max((tau - 1) * err, tau * err)
+        return err
+
+
+class ELoss(BaseQLoss):
+
+    def __init__(self, reduction='none') -> None:
+        r"""Creates element-wise expectile loss without reduction.
+
+        Shape:
+            - mean: (batch_size, ...).
+            - target: (batch_size, ...), same shape as the mean.
+            - output: (batch_size, ...), same shape as the mean.
+        """
+        super().__init__()
+
+    def error_function(self, input: Tensor, target: Tensor, tau: float | Tensor) -> Tensor:
+        err = target - input
+        err2 = err ** 2
+        return torch.where(err >= 0.0, err2 * tau, err2 * (1 - tau))
+
+
 class NSELoss(nn.Module):
 
     def __init__(self, reduction: str = 'mean', constant: float = 0.1) -> None:
@@ -192,7 +275,7 @@ class NSELoss(nn.Module):
         err = (batch_err * element_weight).sum() / element_weight.sum()
 
         return err
-        return batch_err.mean()
+
 
 
 class RegressionLoss(nn.Module):
@@ -229,24 +312,35 @@ class RegressionLoss(nn.Module):
     * input: (N, *), where * means, any number of additional dimensions
     * target: (N, *), same shape as the input
     """
-    def __init__(self, criterion: str = 'l1', sample_wise: bool = True, beta: float = 0.5) -> None:
+
+    LOSS_FUNCTIONS = ('l1', 'l2', 'huber', 'nse', 'quantile', 'expectile')
+    LOSS_FUNCTIONS_WITH_TAU = ('quantile', 'expectile')
+
+    def __init__(
+            self,
+            criterion: str,
+            sample_wise: bool = True,
+            log_transform: bool = False,
+            epsilon: float = 1e-3) -> None:
         """Initialize RegressionLoss.
-        
+
         Args:
-            criterion : str (``'l1'`` | ``'l2'`` | ``'huber'`` | ``'nse'`` | ``'betanll'``)
+            criterion : str (``'l1'`` | ``'l2'`` | ``'huber'`` | ``'nse'`` | ``'quantile'`` | ``'expectile'``)
                 ``'l1'`` for Mean Absolute Error (MAE),
                 ``'l2'`` for Mean Squared Error (MSE),
                 ``'huber'`` for Huber loss (mix of l1 and l2),
                 ``'nse'`` for Nash-Sutcliffe modelling efficiency coefficient (NSE),
-                ``'betanll'`` beta-weighted negative log likelihood (NLL).
+                ``'quantile'`` for quantile loss,
+                ``'expectile'`` for quantile loss,
             sample_wise : bool
                 Whether to calculate sample-wise loss first and average then (`True`, default) or to
                 calculate the loss across all elements. The former weights each batch element equally,
                 the latter weights each observation equally. This is relevant especially with many NaN
                 in the target tensor, while there is no difference without NaN.
-            beta: Parameter for betanll locriterions in range [0, 1] controlling relative weighting between data points
-                with the ``'betanll'`` criterion, where `0` corresponds to high weight on low error points
-                and `1` to an equal weighting. A value of 0.5 (default) has been reported to work best in general.
+            log_transform: Whether to log-transform the predictions and targets before computing the loss.
+                Default is False.
+            epsilon: A small value added to the predictions and targets before calculating the log
+                transformation to avoid log(0). Only applies if `log_transform` is True. Defaults to 1e-3.
 
         """
 
@@ -254,49 +348,51 @@ class RegressionLoss(nn.Module):
 
         criterion = criterion.lower()
 
-        if criterion not in ('l1', 'l2', 'huber', 'nse', 'betanll'):
+        if criterion not in self.LOSS_FUNCTIONS:
+            loss_functions_str = '(\'' + '\' | \''.join(self.LOSS_FUNCTIONS) + '\')'
             raise ValueError(
-                f'argument `criterion` must be one of '
-                '(\'l1\' | \'l2\', | \'huber\' | \'nse\' | \'betanll\'), is \'{criterion}\'.'
+                f'argument `criterion` must be one of {loss_functions_str}, is \'{criterion}\'.'
             )
 
+        self.has_tau = criterion in self.LOSS_FUNCTIONS_WITH_TAU
         self.criterion = criterion
         self.sample_wise = sample_wise
 
-        loss_fn_args = dict(reduction='none')
-        if self.criterion == 'batanll':
-            loss_fn_args.update(dict(beta=beta))
-        elif self.criterion == 'huber':
+        loss_fn_args: dict = dict(reduction='none')
+        if self.criterion == 'huber':
             loss_fn_args.update(dict(delta=0.3))
         elif self.criterion == 'nse':
             loss_fn_args.update(dict(reduction='mean'))
-        elif (self.criterion == 'nse') and (not self.sample_wise):
-            raise ValueError(
-                'Cannot use criterion \'nse\' with sample_wise being False, as the mean observations '
-                'must be calculated per sample. Use `sample_wise=True` with NSE.'
-            )
+            if not self.sample_wise:
+                raise ValueError(
+                    'Cannot use criterion \'nse\' with sample_wise being False, as the mean observations '
+                    'must be calculated per sample. Use `sample_wise=True` with NSE.'
+                )
+
+        self.log_transform = log_transform
+        self.epsilon = epsilon
 
         self.loss_fn = {
             'l1': nn.L1Loss,
             'l2': nn.MSELoss,
             'huber': nn.HuberLoss,
             'nse': NSELoss,
-            'betanll': BetaNLLLoss,
+            'quantile': QLoss,
+            'expectile': ELoss
         }[self.criterion](**loss_fn_args)
 
     def forward(
             self,
             input: Tensor,
             target: Tensor,
-            variance: Tensor | None = None,
+            tau: float | Tensor | None = None,
             basin_std: Tensor | None = None) -> Tensor:
         """Forward call, calculate loss from input and target, must have same shape.
 
         Args:
             input: Predicted mean of shape (B x ...)
             target: Target of shape (B x ...)
-            variance: Predicted variance of shape (B x ...). Only needed / allowed
-                with `criterion`=``'betanll'``
+            tau: the probability for quantile or expectile loss, a float in the range [0, 1].
             basin_std: The observation time series standard deviation with shape (B, ). Exclusively required
                 for 'nse' criterion.
 
@@ -304,16 +400,9 @@ class RegressionLoss(nn.Module):
             The loss, a scalar.
         """
 
-        if self.criterion == 'betanll':
-            if variance is None:
-                raise ValueError(
-                    'argument `variance` required with `criterion`=\'betanll\'.'
-                )
-        else:
-            if variance is not None:
-                raise ValueError(
-                    f'argument `variance` not allowed with `criterion`=\'{self.criterion}\'.'
-                )
+        if self.log_transform:
+            input = torch.log(input + self.epsilon)
+            target = torch.log(target + self.epsilon)
 
         if self.criterion == 'nse':
             if basin_std is None:
@@ -327,8 +416,12 @@ class RegressionLoss(nn.Module):
         # By setting target to input for NaNs, we set gradients to zero.
         target = target.where(mask, input)
 
-        if self.criterion == 'betanll':
-            element_error = self.loss_fn(mean=input, variance=variance, target=target, mask=mask)
+        if self.criterion in ['quantile', 'expectile']:
+            if tau is None:
+                raise ValueError(
+                    f'argument `tau` required with `criterion`=\'{self.criterion}\'.'
+                )
+            element_error = self.loss_fn(input, target, tau)
         else:
             element_error = self.loss_fn(input, target)
 
@@ -341,3 +434,11 @@ class RegressionLoss(nn.Module):
             err = element_error.sum() / mask.sum()
 
         return err
+
+    def __repr__(self) -> str:
+        criterion = self.criterion
+        sample_wise = self.sample_wise
+        log_transform = self.log_transform
+        epsilon = self.epsilon
+        s = f'RegressionLoss({criterion=}, {sample_wise=}, {log_transform=}, {epsilon=})'
+        return s
