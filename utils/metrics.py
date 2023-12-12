@@ -28,6 +28,15 @@ def _bias(
 
     return bias.compute()
 
+def _absbias(
+        obs: xr.DataArray,
+        mod: xr.DataArray,
+        dim: str | Iterable[str] | None) -> xr.DataArray:
+
+    absbias: xr.DataArray = np.abs(_bias(obs=obs, mod=mod, dim=dim))
+
+    return absbias.compute()
+
 def _mse(
         obs: xr.DataArray,
         mod: xr.DataArray,
@@ -84,13 +93,14 @@ def _kge(
     return (1 - value ** 0.5).compute()
 
 METRIC_MAPPING = dict(
-    bias={'func': _bias, 'name': 'Bias'},
-    mse={'func': _mse, 'name': 'Mean squared error'},
-    rmse={'func': _rmse, 'name': 'Root mean squared error'},
-    nse={'func': _nse, 'name': 'Modeling efficiency'},
-    nnse={'func': _nnse, 'name': 'Normalized modeling efficiency'},
-    kge={'func': _kge, 'name': 'Kling–Gupta efficiency'},
-    r={'func': _r, 'name': 'Pearson\'s correlation'},
+    bias={'func': _bias, 'name': 'Bias', 'direction': 'min'},
+    absbias={'func': _absbias, 'name': 'Absolute bias', 'direction': 'min'},
+    mse={'func': _mse, 'name': 'Mean squared error', 'direction': 'min'},
+    rmse={'func': _rmse, 'name': 'Root mean squared error', 'direction': 'min'},
+    nse={'func': _nse, 'name': 'Modeling efficiency', 'direction': 'max'},
+    nnse={'func': _nnse, 'name': 'Normalized modeling efficiency', 'direction': 'max'},
+    kge={'func': _kge, 'name': 'Kling–Gupta efficiency', 'direction': 'max'},
+    r={'func': _r, 'name': 'Pearson\'s correlation', 'direction': 'max'},
 )
 
 
@@ -123,8 +133,10 @@ def compute_metrics(
     for metric in metrics:
         func = METRIC_MAPPING[metric]['func']
         name = METRIC_MAPPING[metric]['name']
+        direction = METRIC_MAPPING[metric]['direction']
         da = func(obs=obs_da, mod=mod_da, dim=dim)
         da.attrs['long_name'] = name
+        da.attrs['direction'] = direction
         ds[metric] = da
 
     return ds
