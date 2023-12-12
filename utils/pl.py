@@ -44,28 +44,37 @@ class LightningNet(pl.LightningModule):
         The subclass must implement a `forward` method (see PyTorch doc) which takes the arguments `x`, the
         sequencial input, and optional argument `s`, the static input:
         * `x`: (B, C, S)
-        * `x`: (B, D)
+        * `s`: (B, D)
         * return: (B, O, S)
         where B=batch size, S=sequence length, C=number of dynamic channels, and D=number of static channels.
     """
-    def __init__(self, **kwargs) -> None:
+    def __init__(
+            self,
+            criterion: str = 'L2',
+            log_transform: bool = False,
+            inference_taus: list[float] = [0.05, 0.25, 0.5, 0.75, 0.9]) -> None:
         """Initialize lightning module, should be subclassed.
 
         Args:
-            kwargs:
-                Do not use kwargs, required as sink for exceeding arguments due to pytorch ligthning's argparse scheme.
+            criterion: the criterion to use, defaults to L2.
+            log_transform: Whether to log-transform the predictions and targets before computing the loss.
+                Default is False.
+            inference_taus: The tau values (probabilities) to evaluate in inference. Only applies for
+                distribution-aware criterions.
         """
 
         super().__init__()
 
-        #self.loss_fn = RegressionLoss(criterion='nse', sample_wise=True)
-        self.loss_fn = RegressionLoss(criterion='l2', sample_wise=False)
+        self.loss_fn = RegressionLoss(criterion=criterion, log_transform=log_transform)
+
+        self.sample_tau = self.loss_fn.has_tau
+        self.inference_taus = inference_taus
 
     def shared_step(
             self,
             batch: BatchPattern,
             step_type: str,
-            batch_idx: int) -> tuple[Tensor, ReturnPattern]:
+            tau: float = 0.5) -> tuple[Tensor, ReturnPattern]:
         """A single training step shared across specialized steps that returns the loss and the predictions.
 
         Args:
@@ -81,26 +90,29 @@ class LightningNet(pl.LightningModule):
 
         target_hat = self(
             x=batch.dfeatures,
-            s=batch.sfeatures
+            s=batch.sfeatures,
+            tau=tau
         )
 
         num_cut = batch.coords.warmup_size[0]
         batch_size = target_hat.shape[0]
 
-        # loss = self.loss_fn(
-        #     input=target_hat[..., num_cut:],
-        #     target=batch.dtargets[..., num_cut:],
-        #     basin_std=batch.targetstd
-        # )
-
-        loss = self.loss_fn(
-            input=target_hat[..., num_cut:],
-            target=batch.dtargets[..., num_cut:],
-        )
+        if self.loss_fn.criterion in ['quantile', 'expectile']:
+            loss = self.loss_fn(
+                input=target_hat[..., num_cut:],
+                target=batch.dtargets[..., num_cut:],
+                tau=tau
+            )
+        else:
+            loss = self.loss_fn(
+                input=target_hat[..., num_cut:],
+                target=batch.dtargets[..., num_cut:],
+            )
 
         preds = ReturnPattern(
             dtargets=target_hat,
-            coords=batch.coords
+            coords=batch.coords,
+            tau=tau
         )
 
         if step_type != 'pred':
@@ -128,7 +140,12 @@ class LightningNet(pl.LightningModule):
             Tensor: The batch loss.
         """
 
-        loss, _ = self.shared_step(batch, step_type='train', batch_idx=batch_idx)
+        if self.sample_tau:
+            tau = np.random.uniform()
+        else:
+            tau = 0.5
+
+        loss, _ = self.shared_step(batch, step_type='train', tau=tau)
 
         return loss
 
@@ -144,7 +161,7 @@ class LightningNet(pl.LightningModule):
 
         """
 
-        loss, _ = self.shared_step(batch, step_type='val', batch_idx=batch_idx)
+        loss, _ = self.shared_step(batch, step_type='val', tau=0.5)
 
         return {'val_loss': loss}
 
@@ -160,7 +177,7 @@ class LightningNet(pl.LightningModule):
 
         """
 
-        loss, _ = self.shared_step(batch, step_type='test', batch_idx=batch_idx)
+        loss, _ = self.shared_step(batch, step_type='test', tau=0.5)
 
         return {'test_loss': loss}
 
@@ -169,7 +186,7 @@ class LightningNet(pl.LightningModule):
             batch: BatchPattern,
             batch_idx: int,
             dataloader_idx: int = 0
-            ) -> ReturnPattern:
+            ) -> list[ReturnPattern]:
         """A single predict step.
 
         Args:
@@ -178,9 +195,13 @@ class LightningNet(pl.LightningModule):
 
         """
 
-        _, preds = self.shared_step(batch, step_type='pred', batch_idx=batch_idx)
+        tau_preds = []
 
-        return preds
+        for tau in self.inference_taus:
+            _, preds = self.shared_step(batch, step_type='pred', tau=tau)
+            tau_preds.append(preds)
+
+        return tau_preds
 
     def summarize(self):
         s = f'=== Summary {"=" * 31}\n'
@@ -189,6 +210,14 @@ class LightningNet(pl.LightningModule):
         s += f'{str(self)}'
 
         return s
+
+    def on_train_start(self) -> None:
+
+        os.makedirs(self.logger.log_dir, exist_ok=True)
+        with open(os.path.join(self.logger.log_dir, 'model_summary.txt'), 'w') as f:
+            f.write(self.summarize())
+
+        return super().on_train_start()
 
 
 class PredictionWriter(BasePredictionWriter):
@@ -201,7 +230,7 @@ class PredictionWriter(BasePredictionWriter):
             self,
             trainer: 'pl.Trainer',
             pl_module: 'pl.LightningModule',
-            predictions: Sequence[ReturnPattern],
+            predictions: Sequence[list[ReturnPattern]],
             batch_indices: Sequence[Any]) -> None:
 
         pdl: DataLoader = trainer.predict_dataloaders
@@ -210,22 +239,30 @@ class PredictionWriter(BasePredictionWriter):
         ds: xr.Dataset = pdl.dataset.ds
         out_ds = ds.copy()
 
+        taus = [p.tau for p in predictions[0]]
+
         encoding = {}
         for t, target in enumerate(pdl.dataset.targets):
             new_target_name = target + '_mod'
-            da = xr.full_like(ds[target], np.nan).compute()
-            for output in predictions:
-                coords = output.coords
-                for i, (station, start_date, end_date) in enumerate(zip(coords.station, coords.start_date, coords.end_date)):
-                    da.loc[{'station': station, 'time': slice(start_date, end_date)}] = \
-                        output.dtargets[i, t, warmup_size:].detach().numpy()
+            da = xr.full_like(ds[target], np.nan).expand_dims(tau=taus).copy().compute()
+            for outputs in predictions:
+                for output in outputs:
+                    coords = output.coords
+                    tau = output.tau
+                    for i, (station, start_date, end_date) in enumerate(
+                            zip(coords.station, coords.start_date, coords.end_date)):
+                        da.loc[{
+                            'station': station,
+                            'time': slice(start_date, end_date),
+                            'tau': tau
+                        }] = output.dtargets[i, t, warmup_size:].detach().numpy()
 
             out_ds[new_target_name] = da
 
             encoding.update(
                 {
                     new_target_name: {
-                        'chunks': (1, -1)
+                        'chunks': (1, -1),
                     }
                 }
             )
@@ -281,10 +318,37 @@ class MyLightningCLI(LightningCLI):
         super().__init__(*args, **kwargs)
 
     def add_arguments_to_parser(self, parser):
+        # Training routine args
+        # -------------------------------------
         parser.add_argument(
-            '--dev', action='store_true', help='quick dev run with one epoch and 1 batch.')
+            '--dev',
+            action='store_true',
+            help='quick dev run with one epoch and 1 batch.')
         parser.add_argument(
-            '--skip_tuning', action='store_true', help='skip tuning and do xval; tuning must be present.')
+            '--skip_tuning',
+            action='store_true',
+            help='skip tuning and do xval; tuning must be present.')
+
+        # Criterion routine args
+        # -------------------------------------
+        parser.add_argument(
+            '--criterion.name',
+            type=str,
+            default='l2',
+            help='the criterion to use for optimization, defauls to \'l2\'.')
+        parser.add_argument(
+            '--criterion.log_transform',
+            action='store_true',
+            help='whether to compute loss on log transformed scale.')
+        parser.add_argument(
+            '--criterion.inference_taus',
+            nargs='+',
+            type=float,
+            default=[0.05, 0.25, 0.5, 0.75, 0.9],
+            help='tau values to evaluate in inference; only applies for distribution-aware criterions.')
+
+        # Linking args
+        # -------------------------------------
         parser.link_arguments(
             'data.num_sfeatures', 'model.init_args.num_static_in', apply_on='instantiate')
         parser.link_arguments(
@@ -295,6 +359,12 @@ class MyLightningCLI(LightningCLI):
             'data.norm_args_features', 'model.init_args.norm_args_features', apply_on='instantiate')
         parser.link_arguments(
             'data.norm_args_stat_features', 'model.init_args.norm_args_stat_features', apply_on='instantiate')
+        parser.link_arguments(
+            'criterion.name', 'model.init_args.criterion', apply_on='parse')
+        parser.link_arguments(
+            'criterion.log_transform', 'model.init_args.log_transform', apply_on='parse')
+        parser.link_arguments(
+            'criterion.inference_taus', 'model.init_args.inference_taus', apply_on='parse')
 
     @staticmethod
     def id2version(prefix: str, id: int) -> str:
