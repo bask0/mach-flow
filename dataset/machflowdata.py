@@ -4,6 +4,7 @@ from torch.utils.data import Dataset, DataLoader, default_collate
 import pytorch_lightning as pl
 import numpy as np
 from dataclasses import fields, is_dataclass
+import warnings
 
 from utils.torch import Normalize
 from utils.types import SamplePattern, SampleCoords
@@ -104,9 +105,13 @@ class MachFlowData(Dataset):
             window_start_index = self.warmup_size
             window_end_index = -1
 
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', r'Degrees of freedom <= 0 for slice.')
+            targetstd = data_t.std('time').values.astype('float32')
+
         return_data = SamplePattern(
             dfeatures=data_f.values.astype('float32'),
-            targetstd=data_t.std('time').values.astype('float32'),
+            targetstd=targetstd,
             sfeatures=None if data_s is None else data_s.values.astype('float32'),
             dtargets=data_t.values.astype('float32'),
             coords=SampleCoords(
@@ -437,7 +442,7 @@ class MachFlowDataModule(pl.LightningDataModule):
 
         if self.fold_nr not in range(self.num_cv_folds):
             raise ValueError(
-                f'\'fold_nr\' must be in range [0, {self.num_cv_folds}), is {self.fold_nr}.'
+                f'\'fold_nr\' must be in range [0, {self.num_cv_folds-1}], is {self.fold_nr}.'
             )
 
         if folds is None:
