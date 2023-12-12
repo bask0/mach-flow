@@ -3,10 +3,8 @@ from torch import Tensor
 
 from utils.pl import LightningNet
 from utils.torch import Normalize, Transform
-from utils.torch_modules import FeedForward
+from utils.torch_modules import PadTau, EncodingModule
 
-
-# TODO: drop encoding
 
 class LSTM(LightningNet):
     """LSTM based rainfall-runoff module."""
@@ -22,11 +20,15 @@ class LSTM(LightningNet):
             num_outputs: int = 1,
             norm_args_features: dict | None = None,
             norm_args_stat_features: dict | None = None,
-            norm_args_stat_targets: dict | None = None) -> None:
+            norm_args_stat_targets: dict | None = None,
+            **loss_kwargs) -> None:
 
-        super().__init__()
+        super().__init__(**loss_kwargs)
 
         self.save_hyperparameters()
+
+        # Data normalization
+        # -------------------------------------------------
 
         if norm_args_features is not None:
             self.norm_features = Normalize(**norm_args_features)
@@ -43,76 +45,89 @@ class LSTM(LightningNet):
         else:
             self.norm_targets = torch.nn.Identity()
 
-        self.static_encoding = FeedForward(
-            num_inputs=num_static_in,
-            num_outputs=num_enc,
-            num_hidden=num_hidden,
+        # Static input encoding
+        # -------------------------------------------------
+
+        self.static_encoding = EncodingModule(
+            num_in=num_static_in,
+            num_enc=num_enc,
             num_layers=num_enc_layers,
             dropout=enc_dropout,
-            activation='tanh',
-            activation_last='tanh',
-            dropout_last=True,
-            residual=False
+            activation=torch.nn.ReLU(),
+            activation_last=torch.nn.Sigmoid()
         )
 
-        self.to_channels_last = Transform(transform_fun=lambda x: x.transpose(1, 2))
+        # Dynamic input encoding
+        # -------------------------------------------------
 
-        self.dynamic_encoding = FeedForward(
-            num_inputs=num_dynamic_in,
-            num_outputs=num_enc,
-            num_hidden=num_hidden,
+        self.dynamic_encoding = EncodingModule(
+            num_in=num_dynamic_in,
+            num_enc=num_enc,
             num_layers=num_enc_layers,
             dropout=enc_dropout,
-            activation='tanh',
-            activation_last='tanh',
-            dropout_last=True,
-            residual=False
+            activation=torch.nn.Tanh(),
+            activation_last=torch.nn.Tanh()
         )
+
+        # Temporal layer(s)
+        # -------------------------------------------------
+
+        self.pad_tau = PadTau()
+
+        self.to_channel_last = Transform(transform_fun=lambda x: x.transpose(1, 2), name='Transpose(1, 2)')
 
         self.lstm = torch.nn.LSTM(
-            input_size=num_enc,
+            input_size=num_enc + 1,
             hidden_size=num_hidden,
             num_layers=num_lstm_layers,
             batch_first=True,
         )
 
-        self.out_layer = torch.nn.Linear(
-            in_features=num_hidden,
-            out_features=num_outputs
+        self.to_sequence_last = Transform(transform_fun=lambda x: x.transpose(1, 2), name='Transpose(1, 2)')
+
+        self.out_layer = torch.nn.Conv1d(
+            in_channels=num_hidden + 1,
+            out_channels=num_outputs,
+            kernel_size=1
         )
 
         self.out_activation = torch.nn.Softplus()
 
-        self.to_sequence_last = Transform(transform_fun=lambda x: x.transpose(1, 2))
-
-    def forward(self, x: Tensor, s: Tensor | None) -> Tensor:
+    def forward(self, x: Tensor, s: Tensor | None, tau: float = 0.5) -> Tensor:
 
         # Normalize dynamic inputs with #C features: (B, C, S)
         x_out = self.norm_features(x)
 
-        # Dyncmic inputs to channel last: (B, C, S) -> (B, S, C)
-        x_out = self.to_channels_last(x_out)
-
-        # Dynamic encoding: (B, S, C) -> (B, S, E)
+        # Dynamic encoding: (B, C, S) -> (B, E, S)
         x_out = self.dynamic_encoding(x_out)
 
-        # Normalize static inputs with #D features: (B, C)
-        s_out = self.norm_stat_features(s)
-
         if s is not None:
-            # Static encoding and unsqueezing: (B, C) ->  (B, 1, E)
-            s_out = self.static_encoding(s_out).unsqueeze(1)
-            # Add static encoding to dynamic encoding: (B, S, E) + (B, 1, E) -> (B, S, E)
+            # Normalize static inputs with #D features: (B, C)
+            s_out = self.norm_stat_features(s)
+
+            # Static encoding and unsqueezing: (B, C) ->  (B, E, 1)
+            s_out = self.static_encoding(s_out.unsqueeze(-1))
+
+            # Add static encoding to dynamic encoding: (B, E, S) + (B, E, 1) -> (B, E, S)
             x_out = x_out + s_out
+
+        # Pad tau: (B, E, S) -> (B, E + 1, S)
+        x_out = self.pad_tau(x_out, tau)
+
+        # Prepare input for LSTM layer: (B, E, S) -> (B, S, E)
+        x_out = self.to_channel_last(x_out)
 
         # LSTM layer: (B, S, E) -> (B, S, H)
         out, _ = self.lstm(x_out)
 
-        # Output layer and activation: (B, S, H) -> (B, S, O)
+        # Dynamic outputs to sequence last: (B, S, H) -> (B, H, S)
+        out = self.to_sequence_last(out)
+
+        # Pad tau: (B, H, S) -> (B, H + 1, S)
+        out = self.pad_tau(out, tau)
+
+        # Output layer and activation: (B, H + 1, S) -> (B, O, S)
         out = self.out_layer(out)
         out = self.out_activation(out)
-
-        # Dyncmic outputs to sequence last: (B, S, O) -> (B, O, S)
-        out = self.to_sequence_last(out)
 
         return out
