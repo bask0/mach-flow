@@ -6,7 +6,7 @@ import xarray as xr
 from typing import Any, Callable
 
 
-TensorLike = np.ndarray[int, np.dtype[np.float32]] | torch.Tensor
+TensorLike = np.ndarray[int, np.dtype[np.float32]] | torch.Tensor | list[float]
 
 TORCH_DTYPES = {
     'float16': torch.float16,
@@ -146,8 +146,8 @@ class Normalize(torch.nn.Module):
             stds.append(da.std().item())
 
         args = {
-            'means': torch.as_tensor(means, dtype=torch_dtype),
-            'stds': torch.as_tensor(stds, dtype=torch_dtype),
+            'means': means,
+            'stds': stds,
             'features_dim': 0,
             'dtype': dtype
         }
@@ -211,7 +211,7 @@ def get_activation(activation: str | None) -> torch.nn.Module:
 
 
 class Transform(torch.nn.Module):
-    def __init__(self, transform_fun: Callable) -> None:
+    def __init__(self, transform_fun: Callable, name: str = 'Transform()') -> None:
         """Transform layer, applies `transform_fun`.
 
         Example:
@@ -227,6 +227,11 @@ class Transform(torch.nn.Module):
         super(Transform, self).__init__()
 
         self.transform_fun = transform_fun
+        self.name = name
 
     def forward(self, x: Tensor) -> Tensor:
         return self.transform_fun(x)
+
+    def __repr__(self) -> str:
+        s = f'{self.name}'
+        return s
