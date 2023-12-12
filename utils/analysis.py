@@ -50,6 +50,8 @@ def study_summary(study_path: str, study_name: str):
 
 
 def get_cdf(da: xr.DataArray) -> tuple[np.ndarray, np.ndarray, float]:
+    da = da.load()
+    da = da.where(da.notnull(), drop=True)
     count, bins = np.histogram(da, bins=len(da))
     bins = (bins[:-1] + bins[1:]) / 2
     pdf = count / sum(count) 
@@ -88,6 +90,7 @@ def plot_cdf(
         da = ds[metric]
 
         name = da.attrs.get('long_name', metric)
+        direction = da.attrs.get('direction', 'none')
 
         bins, cdf, xloc = get_cdf(da)
         ax.plot(bins, cdf, label=ours_name, color=col, alpha=0.7)
@@ -136,27 +139,43 @@ def plot_cdf(
             xspan = np.linspace(0, xmax_sym, n_span)
             n0 = 0.7
             l = 0.12
+
+            if direction == 'min':
+                a_text = f'{ours_name} better'
+                b_text = f'{ref_name} better'
+                left_color = col
+                right_color = ref_col
+            elif direction == 'max':
+                a_text = f'{ref_name} better'
+                b_text = f'{ours_name} better'
+                left_color = ref_col
+                right_color = col
+            else:
+                raise ValueError(
+                    f'\'direction\' property must be \'min\' or \'max\', is \'{direction}\'.'
+                )
+
             for i, (a, b) in enumerate(zip(xspan[:-1], xspan[1:])):
                 if -a > xmin:
                     alp = n0 * np.exp(-l * i)
-                    ax.axvspan(-b, -a, facecolor=ref_col, alpha=alp)
+                    ax.axvspan(-b, -a, facecolor=left_color, alpha=alp)
 
                 if b < xmax:
                     alp = n0 * np.exp(-l * i)
-                    ax.axvspan(a, b, facecolor=col, alpha=alp)
+                    ax.axvspan(a, b, facecolor=right_color, alpha=alp)
 
             if np.abs(xmin) > xmax:
                 ax.text(
-                    -(xmax- xmin) * 0.05, 1.4, f'{ref_name} better',
+                    -(xmax- xmin) * 0.05, 1.4, a_text,
                     bbox=dict(boxstyle='larrow,pad=0.2',
-                            fc=ref_col, ec='none', alpha=0.4),
+                            fc=left_color, ec='none', alpha=0.4),
                     color='0.2',
                     va='center', ha='right', fontsize=9)
             else:
                 ax.text(
-                    (xmax- xmin) * 0.05, 1.4, f'{ours_name} better',
+                    (xmax- xmin) * 0.05, 1.4, b_text,
                     bbox=dict(boxstyle='rarrow,pad=0.2',
-                            fc=col, ec='none', alpha=0.4),
+                            fc=right_color, ec='none', alpha=0.4),
                     color='0.2',
                     va='center', ha='left', fontsize=9)
 
@@ -179,8 +198,8 @@ def xval_station_metrics(
         dir: str,
         target: str = 'Qmm',
         benchmark: str | None = 'prevah',
-        metrics=['bias', 'r', 'nse'],
-        **subset):
+        metrics: list[str] = ['bias', 'r', 'nse'],
+        **subset) -> xr.Dataset:
     pattern = os.path.join(dir, '*', '*', 'xval')
     paths = glob(pattern)
 
@@ -195,6 +214,9 @@ def xval_station_metrics(
 
         obs = ds[target]
         mod = ds[target + '_mod']
+
+        if 'tau' in mod.dims:
+            mod = mod.sel(tau=0.5)
 
         met = compute_metrics(obs=obs, mod=mod, metrics=metrics, dim='time')
         mets.append(met)
@@ -345,13 +367,18 @@ def plot_xval_cdf(
 
     ds = load_xval_test_set(xval_dir=xval_dir)
     ds = ds.sel(**subset)
+    ds = ds.sel(tau=0.5)
 
-    met = compute_metrics(metrics=['r', 'nse'], obs=ds[obs_name], mod=ds[mod_name], dim='time')
+    mask = (ds[mod_name].notnull() & ds[ref_name].notnull()).compute()
+    ds[mod_name] = ds[mod_name].where(mask).compute()
+    ds[ref_name] = ds[ref_name].where(mask).compute()
+
+    met = compute_metrics(metrics=['r', 'nse', 'absbias'], obs=ds[obs_name], mod=ds[mod_name], dim='time')
 
     if ref_name is None:
         met_ref = None
     else:
-        met_ref = compute_metrics(metrics=['r', 'nse'], obs=ds[obs_name], mod=ds[ref_name], dim='time')
+        met_ref = compute_metrics(metrics=['r', 'nse', 'absbias'], obs=ds[obs_name], mod=ds[ref_name], dim='time')
 
     plot_cdf(
         ds=met,
