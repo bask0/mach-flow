@@ -17,7 +17,6 @@ class SamplePattern:
     dfeatures: np.ndarray
     dtargets: np.ndarray
     coords: SampleCoords
-    targetstd: np.ndarray
     sfeatures: np.ndarray | None = None
 
 
@@ -36,7 +35,6 @@ class BatchPattern:
     dfeatures: Tensor
     dtargets: Tensor
     coords: BatchCoords
-    targetstd: Tensor
     sfeatures: Tensor | None = None
 
 

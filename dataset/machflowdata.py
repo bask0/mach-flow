@@ -105,13 +105,8 @@ class MachFlowData(Dataset):
             window_start_index = self.warmup_size
             window_end_index = -1
 
-        with warnings.catch_warnings():
-            warnings.filterwarnings('ignore', r'Degrees of freedom <= 0 for slice.')
-            targetstd = data_t.std('time').values.astype('float32')
-
         return_data = SamplePattern(
             dfeatures=data_f.values.astype('float32'),
-            targetstd=targetstd,
             sfeatures=None if data_s is None else data_s.values.astype('float32'),
             dtargets=data_t.values.astype('float32'),
             coords=SampleCoords(
@@ -304,9 +299,6 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.norm_args_stat_features = Normalize.get_normalize_args(
             ds=train_data, norm_variables=self.stat_features
         ) if self.stat_features is not None else None
-
-        # Add target std for NSE*calculation
-        self.ds['targetstd'] = self.ds.sel(time=self.train_date_slice)[self.targets].to_array().std('time')
 
     def get_dataset(self, mode: str) -> MachFlowData:
         """Returns a PyTorch Dataset of type MachFlowData.
