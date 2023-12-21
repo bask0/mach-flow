@@ -2,10 +2,8 @@ from typing import Any, Sequence
 import pytorch_lightning as pl
 from pytorch_lightning.cli import LightningCLI
 from pytorch_lightning.callbacks import BasePredictionWriter
-from pytorch_lightning.utilities.model_summary.model_summary import ModelSummary
 import logging
 from torch.utils.data import DataLoader
-from torch import Tensor
 import xarray as xr
 import numpy as np
 import os
@@ -14,210 +12,16 @@ import optuna
 import warnings
 from typing import TYPE_CHECKING
 
-from utils.loss_functions import RegressionLoss
-from utils.types import BatchPattern, ReturnPattern
+from utils.types import ReturnPattern
 
 if TYPE_CHECKING:
     from utils.tuning import SearchSpace
-
-
 
 # Ignore anticipated PL warnings.
 warnings.filterwarnings('ignore', '.*infer the indices fetched for your dataloader.*')
 warnings.filterwarnings('ignore', '.*You requested to overfit.*')
 
 logger = logging.getLogger('lightning')
-
-
-
-class LightningNet(pl.LightningModule):
-    """Implements basic training routine.
-
-    Note:
-        * This class should take hyperparameters for the training process. Model hyperparameters should be
-            handled in the PyTorch module.
-        * call 'self.save_hyperparameters()' at the end of subclass `__init__(...)`.
-        * The subclass must implement a `forward` method (see PyTorch doc) which takes the arguments
-            `x`, the sequencial input, and `m`, the meta-features.
-
-    Shape:
-        The subclass must implement a `forward` method (see PyTorch doc) which takes the arguments `x`, the
-        sequencial input, and optional argument `s`, the static input:
-        * `x`: (B, C, S)
-        * `s`: (B, D)
-        * return: (B, O, S)
-        where B=batch size, S=sequence length, C=number of dynamic channels, and D=number of static channels.
-    """
-    def __init__(
-            self,
-            criterion: str = 'L2',
-            log_transform: bool = False,
-            inference_taus: list[float] = [0.05, 0.25, 0.5, 0.75, 0.9]) -> None:
-        """Initialize lightning module, should be subclassed.
-
-        Args:
-            criterion: the criterion to use, defaults to L2.
-            log_transform: Whether to log-transform the predictions and targets before computing the loss.
-                Default is False.
-            inference_taus: The tau values (probabilities) to evaluate in inference. Only applies for
-                distribution-aware criterions.
-        """
-
-        super().__init__()
-
-        self.loss_fn = RegressionLoss(criterion=criterion, log_transform=log_transform)
-
-        self.sample_tau = self.loss_fn.has_tau
-        self.inference_taus = inference_taus
-
-    def shared_step(
-            self,
-            batch: BatchPattern,
-            step_type: str,
-            tau: float = 0.5) -> tuple[Tensor, ReturnPattern]:
-        """A single training step shared across specialized steps that returns the loss and the predictions.
-
-        Args:
-            batch: the bach.
-            step_type: the step type (training mode), one of (`train`, `val`, `test`, `pred`).
-
-        Returns:
-            tuple[Tensor, ReturnPattern]: the loss, the predictions.
-        """
-
-        if step_type not in ('train', 'val', 'test', 'pred'):
-            raise ValueError(f'`step_type` must be one of (`train`, `val`, `test`, `pred`), is {step_type}.')
-
-        target_hat = self(
-            x=batch.dfeatures,
-            s=batch.sfeatures,
-            tau=tau
-        )
-
-        num_cut = batch.coords.warmup_size[0]
-        batch_size = target_hat.shape[0]
-
-        if self.loss_fn.criterion in ['quantile', 'expectile']:
-            loss = self.loss_fn(
-                input=target_hat[..., num_cut:],
-                target=batch.dtargets[..., num_cut:],
-                tau=tau
-            )
-        else:
-            loss = self.loss_fn(
-                input=target_hat[..., num_cut:],
-                target=batch.dtargets[..., num_cut:],
-            )
-
-        preds = ReturnPattern(
-            dtargets=target_hat,
-            coords=batch.coords,
-            tau=tau
-        )
-
-        if step_type != 'pred':
-            self.log_dict(
-                {f'{step_type}_loss': loss},
-                prog_bar=True,
-                on_step=True if step_type == 'train' else False,
-                on_epoch=True,
-                batch_size=batch_size
-            )
-
-        return loss, preds
-
-    def training_step(
-            self,
-            batch: BatchPattern,
-            batch_idx: int) -> Tensor:
-        """A single training step.
-
-        Args:
-            batch (Iterable[Tensor]): the bach, x, m, y, s tuple.
-            batch_idx (int): the batch index (required by pl).
-
-        Returns:
-            Tensor: The batch loss.
-        """
-
-        if self.sample_tau:
-            tau = np.random.uniform()
-        else:
-            tau = 0.5
-
-        loss, _ = self.shared_step(batch, step_type='train', tau=tau)
-
-        return loss
-
-    def validation_step(
-            self,
-            batch: BatchPattern,
-            batch_idx: int) -> dict[str, Tensor]:
-        """A single validation step.
-
-        Args:
-            batch (Iterable[Tensor]): the bach, x, m, y, s tuple.
-            batch_idx (int): the batch index (required by pl).
-
-        """
-
-        loss, _ = self.shared_step(batch, step_type='val', tau=0.5)
-
-        return {'val_loss': loss}
-
-    def test_step(
-            self,
-            batch: BatchPattern,
-            batch_idx: int) -> dict[str, Tensor]:
-        """A single test step.
-
-        Args:
-            batch (Iterable[Tensor]): the bach, x, m, y, s tuple.
-            batch_idx (int): the batch index (required by pl).
-
-        """
-
-        loss, _ = self.shared_step(batch, step_type='test', tau=0.5)
-
-        return {'test_loss': loss}
-
-    def predict_step(
-            self,
-            batch: BatchPattern,
-            batch_idx: int,
-            dataloader_idx: int = 0
-            ) -> list[ReturnPattern]:
-        """A single predict step.
-
-        Args:
-            batch (Iterable[Tensor]): the bach, x, m, y, s tuple.
-            batch_idx (int): the batch index (required by pl).
-
-        """
-
-        tau_preds = []
-
-        for tau in self.inference_taus:
-            _, preds = self.shared_step(batch, step_type='pred', tau=tau)
-            tau_preds.append(preds)
-
-        return tau_preds
-
-    def summarize(self):
-        s = f'=== Summary {"=" * 31}\n'
-        s += f'{str(ModelSummary(self))}\n\n'
-        s += f'=== Model {"=" * 33}\n'
-        s += f'{str(self)}'
-
-        return s
-
-    def on_train_start(self) -> None:
-
-        os.makedirs(self.logger.log_dir, exist_ok=True)
-        with open(os.path.join(self.logger.log_dir, 'model_summary.txt'), 'w') as f:
-            f.write(self.summarize())
-
-        return super().on_train_start()
 
 
 class PredictionWriter(BasePredictionWriter):
@@ -344,7 +148,7 @@ class MyLightningCLI(LightningCLI):
             '--criterion.inference_taus',
             nargs='+',
             type=float,
-            default=[0.05, 0.25, 0.5, 0.75, 0.9],
+            default=[0.05, 0.25, 0.5, 0.75, 0.95],
             help='tau values to evaluate in inference; only applies for distribution-aware criterions.')
 
         # Linking args
@@ -359,6 +163,8 @@ class MyLightningCLI(LightningCLI):
             'data.norm_args_features', 'model.init_args.norm_args_features', apply_on='instantiate')
         parser.link_arguments(
             'data.norm_args_stat_features', 'model.init_args.norm_args_stat_features', apply_on='instantiate')
+        # parser.link_arguments(
+        #     'data.norm_args_targets', 'model.init_args.norm_args_targets', apply_on='instantiate')
         parser.link_arguments(
             'criterion.name', 'model.init_args.criterion', apply_on='parse')
         parser.link_arguments(

@@ -1,9 +1,8 @@
 import torch
 from torch import Tensor
 
-from utils.pl import LightningNet
-from utils.torch import Normalize, Transform
-from utils.torch_modules import PadTau, EncodingModule
+from models.base import LightningNet
+from utils.torch_modules import Normalize, Transform, PadTau, EncodingModule
 
 
 class LSTM(LightningNet):

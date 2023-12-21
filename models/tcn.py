@@ -2,8 +2,7 @@
 import torch
 from torch import Tensor
 
-from utils.pl import LightningNet
-from utils.torch import Normalize
+from models.base import LightningNet
 from utils.torch_modules import PadTau, TemporalConvNet, EncodingModule
 
 
@@ -21,32 +20,11 @@ class TCN(LightningNet):
             tcn_dropout:float = 0.0,
             num_tcn_layers: int = 1,
             num_outputs: int = 1,
-            norm_args_features: dict | None = None,
-            norm_args_stat_features: dict | None = None,
-            norm_args_stat_targets: dict | None = None,
-            **loss_kwargs) -> None:
+            **kwargs) -> None:
 
-        super().__init__(**loss_kwargs)
+        super().__init__(**kwargs)
 
         self.save_hyperparameters()
-
-        # Data normalization
-        # -------------------------------------------------
-
-        if norm_args_features is not None:
-            self.norm_features = Normalize(**norm_args_features)
-        else:
-            self.norm_features = torch.nn.Identity()
-
-        if norm_args_stat_features is not None:
-            self.norm_stat_features = Normalize(**norm_args_stat_features)
-        else:
-            self.norm_stat_features = torch.nn.Identity()
-
-        if norm_args_stat_targets is not None:
-            self.norm_targets = Normalize(**norm_args_stat_targets)
-        else:
-            self.norm_targets = torch.nn.Identity()
 
         # Static input encoding
         # -------------------------------------------------
@@ -96,18 +74,14 @@ class TCN(LightningNet):
 
     def forward(self, x: Tensor, s: Tensor | None, tau: float = 0.5) -> Tensor:
 
-        # Normalize dynamic inputs with #C features: (B, C, S)
-        x_out = self.norm_features(x)
-
         # Dynamic encoding: (B, C, S) -> (B, E, S)
-        x_out = self.dynamic_encoding(x_out)
+        x_out = self.dynamic_encoding(x)
 
         if s is not None:
             # Normalize static inputs with #D features: (B, C)
-            s_out = self.norm_stat_features(s)
 
             # Static encoding and unsqueezing: (B, C) ->  (B, E, 1)
-            s_out = self.static_encoding(s_out.unsqueeze(-1))
+            s_out = self.static_encoding(s.unsqueeze(-1))
 
             # Add static encoding to dynamic encoding: (B, E, S) + (B, E, 1) -> (B, E, S)
             x_out = x_out + s_out
