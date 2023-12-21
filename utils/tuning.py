@@ -7,7 +7,8 @@ import optuna
 from optuna.integration import PyTorchLightningPruningCallback
 from typing import Type, Callable, TypeVar, TYPE_CHECKING
 
-from utils.pl import cli_main, get_dummy_cli, LightningNet
+from models.base import LightningNet
+from utils.pl import cli_main, get_dummy_cli
 from utils.analysis import study_summary, plot_xval_cdf
 
 if TYPE_CHECKING:
@@ -258,6 +259,7 @@ class Tuner(object):
         self.config_name = get_config_name(cli)
         self.model = get_model_name_from_cli(cli)
         self.num_xval_folds = cli.config['data']['init_args']['num_cv_folds']
+        self.targets = cli.config['data']['init_args']['targets']
         self.overwrite = overwrite
 
         if self.model not in search_spaces:
@@ -406,8 +408,12 @@ class Tuner(object):
         return slice(*test_range)    
 
     def plot_xval_cdf(self) -> None:
-        plot_xval_cdf(
-            xval_dir=self.exp_path_xval,
-            save_path=os.path.join(self.exp_path_xval, 'xval_perf.png'),
-            subset={'time': self.test_time_slice}
-        )
+        for target in self.targets:
+            plot_xval_cdf(
+                xval_dir=self.exp_path_xval,
+                obs_name=target,
+                mod_name=f'{target}_mod',
+                ref_name=f'{target}_prevah',
+                save_path=os.path.join(self.exp_path_xval, f'xval_perf_{target}.png'),
+                subset={'time': self.test_time_slice}
+            )
