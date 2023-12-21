@@ -6,7 +6,7 @@ import numpy as np
 from dataclasses import fields, is_dataclass
 import warnings
 
-from utils.torch import Normalize
+from utils.torch_modules import Normalize
 from utils.types import SamplePattern, SampleCoords
 
 
