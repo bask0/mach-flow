@@ -3,14 +3,9 @@ data:
   init_args:
     machflow_data_path: "/data/basil/harmonized_basins.zarr/"
     stat_features:
-    - area
-    - areati
-    - aspect
-    - fieldcap
-    - dhm
-    - glmorph
-    - hcond
-    - landuse
-    - sdepth
-    - slope
-    - soilti
+    - c0
+    - c1
+    - c2
+    - c3
+    - c4
+    - 'area'

@@ -1,0 +1,34 @@
+data:
+  class_path: dataset.machflowdata.MachFlowDataModule
+  init_args:
+    machflow_data_path: "/data/basil/harmonized_basins.zarr/"
+    stat_features:
+    - area
+    - abb
+    - atb
+    - btk
+    - dhm
+    - folds
+    - glm
+    - kwt
+    - pfc
+    - slp
+    - pus01
+    - pus02
+    - pus03
+    - pus04
+    - pus05
+    - pus06
+    - pus07
+    - pus08
+    - pus10
+    - pus13
+    - pus14
+    - pus15
+    - pus19
+    - pus21
+    - pus22
+    - pus24
+    - pus25
+    - pus26
+    - pus29

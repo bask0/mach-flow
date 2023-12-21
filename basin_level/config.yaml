@@ -35,16 +35,7 @@ data:
     targets:
     - Qmm
     stat_features:
-    - 'abb'
-    - 'atb'
-    - 'btk'
-    - 'dhm'
-    - 'glm'
-    - 'kwt'
-    - 'pfc'
-    - 'slp'
     - 'area'
-    # - 'pus'
     train_window_size: 730
     window_min_count: 1
     train_num_samples_per_epoch: 10
@@ -73,11 +64,5 @@ optimizer:
     lr: 0.01
     weight_decay: 0.01
 criterion:
-  name: quantile
-  log_transform: true
-  inference_taus:
-  - 0.05
-  - 0.25
-  - 0.5
-  - 0.75
-  - 0.9
+  name: l2
+  log_transform: false
