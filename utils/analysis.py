@@ -56,9 +56,10 @@ def get_cdf(da: xr.DataArray) -> tuple[np.ndarray, np.ndarray, float]:
     bins = (bins[:-1] + bins[1:]) / 2
     pdf = count / sum(count) 
     cdf = np.cumsum(pdf)
-    xloc = np.interp([0.5], cdf, bins)
+    # xloc = np.interp([0.5], cdf, bins)
 
-    return bins, cdf, xloc.item()
+    #return bins, cdf, xloc.item()
+    return bins, cdf, da.median().item()
 
 
 def plot_cdf(
@@ -216,7 +217,7 @@ def xval_station_metrics(
         mod = ds[target + '_mod']
 
         if 'tau' in mod.dims:
-            mod = mod.sel(tau=0.5)
+            mod = mod.sel(tau=0.5).drop_vars(['tau'])
 
         met = compute_metrics(obs=obs, mod=mod, metrics=metrics, dim='time')
         mets.append(met)
@@ -254,14 +255,14 @@ def plot_model_comp(
         **subset
     ):
 
-    ds = xval_station_metrics(dir=dir, target=target, benchmark=ref, metrics=['r', 'nse'], **subset)
+    ds = xval_station_metrics(dir=dir, target=target, benchmark=ref, metrics=['r', 'nse', 'absbias'], **subset)
 
     metrics = list(ds.data_vars)
     num_metrics = len(metrics)
 
     fig, axes = plt.subplots(
         2, num_metrics, figsize=(3 * num_metrics, 6), sharey='row', squeeze=False,
-        gridspec_kw={'height_ratios': [10, 5], 'hspace': 0.2})
+        gridspec_kw={'height_ratios': [10, 5], 'hspace': 0.3})
 
     for i, metric in enumerate(metrics):
 
