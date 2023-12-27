@@ -4,7 +4,7 @@ from torch.utils.data import Dataset, DataLoader, default_collate
 import pytorch_lightning as pl
 import numpy as np
 from dataclasses import fields, is_dataclass
-import warnings
+import os
 
 from utils.torch_modules import Normalize
 from utils.types import SamplePattern, SampleCoords
@@ -207,7 +207,7 @@ class MachFlowDataModule(pl.LightningDataModule):
     """
     def __init__(
             self,
-            machflow_data_path: str,
+            machflow_data_path: str | list[str],
             features: list[str],
             targets: list[str],
             stat_features: list[str] | None = None,
@@ -228,7 +228,8 @@ class MachFlowDataModule(pl.LightningDataModule):
         """Initialize MachFlowDataModule.
 
         Args:
-            machflow_data_path (str): Path to machflow zarr file.
+            machflow_data_path (str): Path to machflow zarr file. Can be a list of strings, then all paths are checked
+                and the first on existing is taken. If none exists, an error is raised.
             features (list[str]): A list of features.
             targets (list[str]): A list of targets.
             stat_features (list[str]): A list of static features.
@@ -252,7 +253,7 @@ class MachFlowDataModule(pl.LightningDataModule):
 
         super().__init__()
 
-        self.machflow_data_path = machflow_data_path
+        self.machflow_data_path = self.validate_paths(machflow_data_path)
         self.features = features
         self.targets = targets
         self.stat_features = stat_features
@@ -407,6 +408,19 @@ class MachFlowDataModule(pl.LightningDataModule):
             DataLoader: The prediction dataloader.
         """  
         return self.common_dataloader('predict')
+
+    @staticmethod
+    def validate_paths(paths: str | list[str]) -> str:
+        if isinstance(paths, str):
+            paths = [paths]
+
+        for path in paths:
+            if os.path.isdir(path):
+                return path
+
+        raise FileNotFoundError(
+            f'None of the provided paths exist:\n `{"`, `".join(paths)}`'
+        )
 
     def add_cv_set_ids(self) -> None:
         cv_set = xr.full_like(self.ds.station, -1, dtype=np.int8)
