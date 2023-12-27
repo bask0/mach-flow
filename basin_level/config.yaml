@@ -3,16 +3,16 @@ seed_everything: 99
 trainer:
   num_nodes: 1
   callbacks:
-    - class_path: pytorch_lightning.callbacks.EarlyStopping
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: 'val_loss'
         patience: 15
         min_delta: 0.0
         mode: 'min'
-    - class_path: pytorch_lightning.callbacks.TQDMProgressBar
+    - class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
         refresh_rate: 1
-    - class_path: pytorch_lightning.callbacks.ModelCheckpoint
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
         monitor: 'val_loss'
         mode: min
@@ -58,7 +58,7 @@ data:
     - "1961-01-01"
     - "2023-04-30"
     batch_size: 10
-    num_workers: 0
+    num_workers: 4
     seed: 19
 optimizer:
   class_path: torch.optim.AdamW
