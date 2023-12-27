@@ -1,7 +1,7 @@
 
 import xarray as xr
 from torch.utils.data import Dataset, DataLoader, default_collate
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import numpy as np
 from dataclasses import fields, is_dataclass
 import os

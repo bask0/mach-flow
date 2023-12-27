@@ -1,5 +1,5 @@
-import pytorch_lightning as pl
-from pytorch_lightning.utilities.model_summary.model_summary import ModelSummary
+import lightning.pytorch as pl
+from lightning.pytorch.utilities.model_summary import ModelSummary
 import logging
 import torch
 from torch import Tensor
