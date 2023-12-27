@@ -28,7 +28,9 @@ trainer:
 data:
   class_path: dataset.machflowdata.MachFlowDataModule
   init_args:
-    machflow_data_path: "/data/basil/harmonized_basins.zarr/"
+    machflow_data_path:
+    - "/data/basil/harmonized_basins.zarr/"
+    - "/mydata/machflow/basil/data/harmonized_basins.zarr/"
     features:
     - P
     - T
