@@ -14,14 +14,6 @@ import xarray as xr
 from typing import Any, Callable
 
 
-TORCH_DTYPES = {
-    'float16': torch.float16,
-    'float32': torch.float32,
-    'float': torch.float32,
-    'float64': torch.float64,
-}
-
-
 def get_activation(activation: str | None) -> torch.nn.Module:
     """Get PyTorch activation function by string query.
 
@@ -582,8 +574,7 @@ class Normalize(torch.nn.Module):
             self,
             means: TensorLike,
             stds: TensorLike,
-            features_dim: int = 0,
-            dtype: str = 'float32') -> None:
+            features_dim: int = 0) -> None:
         """Initialize the Normelize module.
 
         Args:
@@ -592,20 +583,8 @@ class Normalize(torch.nn.Module):
             features_dim (int, optional): The dimension to normalize over. Corresponds to unbatched dimension of the
                 sample. If a sample has shape (channels=4, sequence=100), and (batch=10, channels=4, sequence=100), we
                 want to normalize over dim=0, as this is the feature dimension. Defaults to 0.
-            dtype (str, optional): The data dtype as string. Defaults to \'float32\'.
-                Technical note: don't change to torch dtypes such as `torch.float32` because these can't be saved
-                as hyperparameters.
         """
         super().__init__()
-
-        if dtype not in TORCH_DTYPES:
-            raise ValueError(
-                f'`dtype={dtype}` is not a valid dtype.'
-            )
-        torch_dtype = TORCH_DTYPES[dtype]
-
-        #self.means = torch.as_tensor(means, dtype=torch_dtype)
-        #self.stds = torch.as_tensor(stds, dtype=torch_dtype)
 
         self.register_buffer('means', torch.as_tensor(means), persistent=True)
         self.register_buffer('stds', torch.as_tensor(stds), persistent=True)
@@ -667,14 +646,7 @@ class Normalize(torch.nn.Module):
     @staticmethod
     def get_normalize_args(
             ds: xr.Dataset,
-            norm_variables: str | list[str],
-            dtype: str = 'float32') -> dict[str, Any]:
-
-        if dtype not in TORCH_DTYPES:
-            raise ValueError(
-                f'`dtype={dtype}` is not a valid dtype.'
-            )
-        torch_dtype = TORCH_DTYPES[dtype]
+            norm_variables: str | list[str]) -> dict[str, Any]:
 
         norm_variables = [norm_variables] if isinstance(norm_variables, str) else norm_variables
 
@@ -689,8 +661,7 @@ class Normalize(torch.nn.Module):
         args = {
             'means': means,
             'stds': stds,
-            'features_dim': 0,
-            'dtype': dtype
+            'features_dim': 0
         }
 
         return args
