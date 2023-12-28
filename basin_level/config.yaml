@@ -40,7 +40,7 @@ data:
     - 'area'
     train_window_size: 730
     window_min_count: 1
-    train_num_samples_per_epoch: 10
+    train_num_samples_per_epoch: 30
     warmup_size: 365
     drop_all_nan_stations: true
     num_cv_folds: 8
@@ -57,7 +57,7 @@ data:
     predict_date_slice:
     - "1961-01-01"
     - "2023-04-30"
-    batch_size: 10
+    batch_size: 32
     num_workers: 4
     seed: 19
 optimizer:
