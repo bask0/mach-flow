@@ -1,6 +1,6 @@
 criterion:
   name: expectile
-  log_transform: false
+  sqrt_transform: false
   inference_taus:
   - 0.05
   - 0.25
