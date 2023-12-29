@@ -57,6 +57,9 @@ data:
     predict_date_slice:
     - "1961-01-01"
     - "2023-04-30"
+    norm_features: true
+    norm_stat_features: true
+    norm_targets: true
     batch_size: 32
     num_workers: 4
     seed: 19
@@ -67,4 +70,4 @@ optimizer:
     weight_decay: 0.01
 criterion:
   name: l2
-  log_transform: false
+  sqrt_transform: false
