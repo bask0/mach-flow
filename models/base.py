@@ -1,5 +1,5 @@
 import lightning.pytorch as pl
-from lightning.pytorch.utilities.model_summary import ModelSummary
+from lightning.pytorch.utilities.model_summary.model_summary import ModelSummary
 import logging
 import torch
 from torch import Tensor
@@ -10,7 +10,7 @@ import abc
 
 from utils.loss_functions import RegressionLoss
 from utils.types import BatchPattern, ReturnPattern
-from utils.torch_modules import Normalize, EncodingModule, PadTau
+from utils.torch_modules import DataTansform, EncodingModule, PadTau
 
 
 # Ignore anticipated PL warnings.
@@ -41,8 +41,8 @@ class LightningNet(pl.LightningModule):
     def __init__(
             self,
             criterion: str = 'L2',
-            log_transform: bool = False,
-            inference_taus: list[float] = [0.05, 0.25, 0.5, 0.75, 0.9],
+            sqrt_transform: bool = False,
+            inference_taus: list[float] = [0.05, 0.25, 0.5, 0.75, 0.95],
             norm_args_features: dict | None = None,
             norm_args_stat_features: dict | None = None,
             norm_args_targets: dict | None = None
@@ -51,7 +51,7 @@ class LightningNet(pl.LightningModule):
 
         Args:
             criterion: the criterion to use, defaults to L2.
-            log_transform: Whether to log-transform the predictions and targets before computing the loss.
+            sqrt_transform: Whether to sqrt-transform the predictions and targets before computing the loss.
                 Default is False.
             inference_taus: The tau values (probabilities) to evaluate in inference. Only applies for
                 distribution-aware criterions.
@@ -59,23 +59,23 @@ class LightningNet(pl.LightningModule):
 
         super().__init__()
 
-        self.loss_fn = RegressionLoss(criterion=criterion, log_transform=log_transform)
+        self.loss_fn = RegressionLoss(criterion=criterion, sqrt_transform=sqrt_transform)
 
         self.sample_tau = self.loss_fn.has_tau
-        self.inference_taus = inference_taus
+        self.inference_taus = inference_taus if self.sample_tau else [0.5]
 
         if norm_args_features is not None:
-            self.norm_features = Normalize(**norm_args_features)
+            self.norm_features = DataTansform(**norm_args_features)
         else:
             self.norm_features = torch.nn.Identity()
 
         if norm_args_stat_features is not None:
-            self.norm_stat_features = Normalize(**norm_args_stat_features)
+            self.norm_stat_features = DataTansform(**norm_args_stat_features)
         else:
             self.norm_stat_features = torch.nn.Identity()
 
         if norm_args_targets is not None:
-            self.norm_targets = Normalize(**norm_args_targets)
+            self.norm_targets = DataTansform(**norm_args_targets)
         else:
             self.norm_targets = torch.nn.Identity()
 
@@ -236,6 +236,14 @@ class LightningNet(pl.LightningModule):
         return s
 
     def on_train_start(self) -> None:
+
+        if self.logger is None:
+            raise AttributeError(
+                'self.logger is not set.'
+            )
+
+        if not hasattr(self.logger, 'log_dir') or (self.logger.log_dir is None):
+            raise KeyError('logger has no attribute \'log_dir\', or it is None.')
 
         os.makedirs(self.logger.log_dir, exist_ok=True)
         with open(os.path.join(self.logger.log_dir, 'model_summary.txt'), 'w') as f:
@@ -532,6 +540,7 @@ class MHA(TemporalNet):
             out = self.transformer_encoder(x, src_mask)
         else:
             seq_len = len(x)
+            # TODO
         
         return out
 
