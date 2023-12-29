@@ -342,7 +342,7 @@ class Tuner(object):
     def tune(self, n_trials: int, **kwargs) -> None:
 
         if self.skip_tuning:
-            logger.warning('Tuning is skipped ue to \'--skip_tuning\'.')
+            logger.warning('Tuning is skipped due to \'--skip_tuning\'.')
             if not os.path.exists(self.exp_path_tune):
                 raise RuntimeError(
                     'no tuning runs found but \'--skip_tuning\'. Did you run tuning beforehand? '
