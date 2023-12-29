@@ -542,6 +542,9 @@ class PadTau(torch.nn.Module):
 
         return torch.nn.functional.pad(x, (0, 0, 0, 1, 0, 0), mode='constant', value=tau)
 
+    def __repr__(self) -> str:
+        return 'PadTau()'
+
 
 TensorLike = np.ndarray[int, np.dtype[np.float32]] | torch.Tensor | list[float]
 
@@ -555,7 +558,7 @@ class Normalize(torch.nn.Module):
 
     Equations:
         - normalization: (x - mean(x_global)) / std(x_global)
-        - de normalization: x * std(x_global) + std(x_global)
+        - denormalization: x * std(x_global) + std(x_global)
 
     Shapes:
         In the forward call, the input tensor is expected to be batched. For sample-level normalization,
@@ -575,7 +578,7 @@ class Normalize(torch.nn.Module):
             means: TensorLike,
             stds: TensorLike,
             features_dim: int = 0) -> None:
-        """Initialize the Normelize module.
+        """Initialize the Normalize module.
 
         Args:
             means (TensorLike): A vector of mean values for normalization.
@@ -644,7 +647,7 @@ class Normalize(torch.nn.Module):
         return x * stds + means
 
     @staticmethod
-    def get_normalize_args(
+    def make_kwargs(
             ds: xr.Dataset,
             norm_variables: str | list[str]) -> dict[str, Any]:
 
@@ -679,3 +682,159 @@ class Normalize(torch.nn.Module):
         stds_expanded = self.stds[dims]
 
         return means_expanded, stds_expanded
+
+    def __repr__(self) -> str:
+        return 'Normalize()'
+
+
+class RobustStandardize(torch.nn.Module):
+    """Robust standardization module.
+
+    The module is initialized with precomputed 0.95 quantile (Q95), which are then used to standardize the input data
+    on-the-fly. Optionally, the inverse (destandardization) can be computed. Standardization ('robust', division by
+    the Q95) is meant for positive variables with large extreme values, such as runoff or discharge.
+
+    Note that the data statistics should be computed from the training set!
+
+    Equations:
+        - standardization (robust): x / Q95(x_global)
+        - destandardization (robust): x *  Q95(x_global)
+
+    Shapes:
+        In the forward call, the input tensor is expected to be batched. For sample-level standardization, use the `robust_standardize` and `robust_destandardize` methods,  respectively. The argument `features_dim` indicates 
+        the channel dimension to standardize without the batch dimension. For an input with shape (B, C, S), with
+        the channel dimension at position 1, the features_dim would be 0 (corresponding to the unbatched data).
+
+        - Input shape: (B, ..., C, ...)
+        - Output shape: (B, ..., C, ...)
+
+        ...where C must correspond to the provided `means` and `stds` vector length.
+
+    """
+
+    def __init__(
+            self,
+            q95s: TensorLike,
+            features_dim: int = 0) -> None:
+        """Initialize the Normalize module.
+
+        Args:
+            q95s (TensorLike): A vector of Q95 (0.95 quantile) values for normalization.
+            features_dim (int, optional): The dimension to standardize over. Corresponds to unbatched dimension of the
+                sample. If a sample has shape (channels=4, sequence=100), and (batch=10, channels=4, sequence=100), we
+                want to standardize over dim=0, as this is the feature dimension. Defaults to 0.
+        """
+        super().__init__()
+
+        self.register_buffer('q95s', torch.as_tensor(q95s), persistent=True)
+
+        self.dim = features_dim
+
+    def forward(self, x: Tensor, invert: bool = False) -> Tensor:
+        """(De)normalize input tensor `x` using predefined statistics.
+
+        Args:
+            x (Tensor): The input tensor to be standardized.
+            invert (bool, optional): Whether to standardized (invert=False) or destandardized (invert=True).
+                Defaults to False.
+
+        Returns:
+            Tensor: The (de)standardized tensor `x`.
+        """
+        if invert:
+            return self.robust_destandardize(x, is_batched=True)
+        else:
+            return self.robust_standardize(x, is_batched=True)
+
+    def robust_standardize(self, x: Tensor, is_batched: bool = False) -> Tensor:
+        """Standardize input x.
+
+        Equation: x / Q95(x_global)
+
+        Args:
+            x (Tensor): The input tensor to standardize. The stats (`q95`) are applied over dimension
+                `dim`, or `dim` + 1 if `is_batched=True`.
+            is_batched (bool, optional): Whether the input Tensor x is a batch (first dim is batch dim) or a single
+                sample. Defaults to False.
+
+        Returns:
+            Tensor: The standardized tensor with same shape as input.
+        """
+        q95s = self._expand_stats_to_x(x=x, is_batched=is_batched)
+
+        return x / q95s
+
+    def robust_destandardize(self, x: Tensor, is_batched: bool = False) -> Tensor:
+        """Destandardize input x.
+
+        Equation: x * Q95(x_global)
+
+        Args:
+            x (Tensor): The input tensor to destandardize. The stats (`q95`) are applied over dimension
+                `dim`, or `dim` + 1 if `is_batched=True`.
+            is_batched (bool, optional): Whether the input Tensor x is a batch (first dim is batch dim) or a single
+                sample. Defaults to False.
+
+        Returns:
+            Tensor: The destandardized tensor with same shape as input.
+        """      
+        q95s = self._expand_stats_to_x(x=x, is_batched=is_batched)
+
+        return x * q95s
+
+    @staticmethod
+    def make_kwargs(
+            ds: xr.Dataset,
+            norm_variables: str | list[str]) -> dict[str, Any]:
+
+        norm_variables = [norm_variables] if isinstance(norm_variables, str) else norm_variables
+
+        q95s = []
+        for var in norm_variables:
+            da = ds[var].load()
+                
+            q95s.append(da.quantile(q=0.95).item())
+
+        args = {
+            'q95s': q95s,
+            'features_dim': 0
+        }
+
+        return args
+
+    def _expand_stats_to_x(self, x: Tensor, is_batched: bool) -> Tensor:
+        """Expand (aka unsqueeze) stats to match input TensorLike shape.
+        
+        x (TensorLike): The Tensor to (de)normalize.
+        is_batched (bool): Whether the input Tensor x is a batch (first dim is batch dim) or a single sample.
+        """
+        dim = self.dim + 1 if is_batched else self.dim
+        dims = tuple([slice(None, None) if d == dim else None for d in range(x.ndim)])
+
+        q95s_expanded = self.q95s[dims]
+
+        return q95s_expanded
+
+    def __repr__(self) -> str:
+        return 'RobustStandardize()'
+
+
+class DataTansform(torch.nn.Module):
+    def __init__(self, **kwargs):
+        super().__init__()
+
+        if 'q95s' in kwargs:
+            self.transform = RobustStandardize(**kwargs)
+        elif ('means' in kwargs) and ('stds' in kwargs):
+            self.transform = Normalize(**kwargs)
+        else:
+            raise ValueError(
+                f'arguments passed to `DataTansform` with keys {list(kwargs.keys())} do not match '
+                'RobustStandardize(q95s=...) nor Normalize(means=..., stds=...) requirements.'
+            )
+
+    def forward(self, x: Tensor, invert: bool = False) -> Tensor:
+        return self.transform(x=x, invert=invert)
+
+    def __repr__(self) -> str:
+        return str(self.transform)
