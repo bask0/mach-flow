@@ -32,6 +32,68 @@ def load_xval_test_set(xval_dir: str | os.PathLike) -> xr.Dataset:
     return ds
 
 
+def sources_to_folds(sources: int | list[int]) -> list[int]:
+    """Select basin by source:
+
+    sources:
+        0: PREVAH
+        1: Observational but not used for training
+        2: Observational used for training
+
+    """
+    sources = [sources] if isinstance(sources, int) else sources
+
+    if sources is not None:
+        actual_sources = []
+
+        for source in sources:
+            if source not in [0, 1, 2]:
+                raise ValueError(
+                    f'\'sources\' must contain integers in range [0, 2], but is `{source}`, where '
+                    '0=PREVAH, 1=Observational but not used for training, 2=Observational used for training.'
+                )
+            if source == 2:
+                actual_sources.extend(list(range(8)))
+            else:
+                actual_sources.append(source - 2)
+
+    else:
+        actual_sources = None
+
+    return actual_sources
+
+
+def load_xval(xval_dir: str | os.PathLike, sources: int | list[int] | None = None):
+    """Select basin by source:
+
+    sources:
+        0: PREVAH
+        1: Observational but not used for training
+        2: Observational used for training
+
+    """
+
+    paths = sorted(glob(os.path.join(xval_dir, 'fold_*/preds.zarr')))
+    ds = xr.open_zarr(paths[0])
+    mod_vars = [var for var in list(ds.data_vars) if var.endswith('_mod')]
+    folds = sources_to_folds(sources)
+
+    ds_mod = xr.open_mfdataset(
+        paths=paths,
+        engine='zarr',
+        concat_dim='cv',
+        combine='nested',
+        preprocess=lambda x: x[mod_vars])
+
+    for var in mod_vars:
+        ds[var] = ds_mod[var]
+
+    if folds is not None:
+        ds = ds.sel(station=ds.folds.isin(folds))
+
+    return ds
+
+
 def convert_q(
         x: float | xr.DataArray,
         area: float | xr.DataArray,
