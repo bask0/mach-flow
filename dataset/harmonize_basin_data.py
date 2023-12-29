@@ -188,13 +188,6 @@ def main(zarr_path: str):
 
         obs_data_list.append(merged_data)
 
-    # obs_data = add_static(
-    #     ds=xr.concat(obs_data_list, dim='station'),
-    #     static_path=obs_stat_file,
-    #     shapefile_path=obs_stat_shapefile,
-    #     basin_id='mach_ID'
-    # )
-
     obs_data = xr.concat(obs_data_list, dim='station')
     obs_data['station'] = obs_data.station.astype(str)
     obs_data['folds'] = xr.full_like(obs_data['T'].isel(time=0).drop('time'), -1, dtype=int)
@@ -227,23 +220,13 @@ def main(zarr_path: str):
 
         ch_data_list.append(merged_data)
 
-    # ch_data = add_static(
-    #     ds=xr.concat(ch_data_list, dim='station'),
-    #     static_path=ch_stat_file,
-    #     shapefile_path=ch_stat_shapefile,
-    #     basin_id='OBJECTID'
-    # )
     ch_data = xr.concat(ch_data_list, dim='station')
     ch_data['station'] = ch_data.station.astype(str)
-    ch_data['folds'] = xr.full_like(obs_data['T'].isel(time=0).drop('time'), -2, dtype=int)
+    ch_data['folds'] = xr.full_like(ch_data['T'].isel(time=0).drop('time'), -2, dtype=int)
 
     logger.info('Combining observational and PREVAH basin data.')
 
     combined = xr.merge((obs_data, ch_data)).drop('Qls')
-    combined['folds'].attrs= {
-        'legend': 'fold=-2: PREVAH basins, no observations | fold>-2: Observational basins; ' + \
-            '0 to n are cross validation folds for drought operational catchments, -1 is others.'
-    }
 
     combined = add_folds(ds=combined, fold_file=fold_cv_file)
 
@@ -267,6 +250,11 @@ def main(zarr_path: str):
                 }
             }
         )
+
+    combined['folds'].attrs= {
+        'legend': 'fold=-2: PREVAH basins, no observations | fold>-2: Observational basins; ' + \
+            '0 to n are cross validation folds for drought operational catchments, -1 is others.'
+    }
 
     logger.info('Saving data.')
 
