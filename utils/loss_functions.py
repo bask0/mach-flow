@@ -282,6 +282,11 @@ class RegressionLoss(nn.Module):
     """Loss functions that ignore NaN in target.
     The loss funtion allows for having missing / non-finite values in the target.
 
+    !IMPORTANT NOTE!
+    ------------------
+    With sqrt_transform=True, negative target values are set to 0, and the model predictions are expected to be >= 0.
+    This can be achieved by using a activation function such as ReLU or Softplus.
+
     Example
     -------
     >>> import torch
@@ -320,8 +325,7 @@ class RegressionLoss(nn.Module):
             self,
             criterion: str,
             sample_wise: bool = True,
-            log_transform: bool = False,
-            epsilon: float = 1e-3) -> None:
+            sqrt_transform: bool = False) -> None:
         """Initialize RegressionLoss.
 
         Args:
@@ -337,10 +341,8 @@ class RegressionLoss(nn.Module):
                 calculate the loss across all elements. The former weights each batch element equally,
                 the latter weights each observation equally. This is relevant especially with many NaN
                 in the target tensor, while there is no difference without NaN.
-            log_transform: Whether to log-transform the predictions and targets before computing the loss.
-                Default is False.
-            epsilon: A small value added to the predictions and targets before calculating the log
-                transformation to avoid log(0). Only applies if `log_transform` is True. Defaults to 1e-3.
+            sqrt_transform: Whether to sqrt-transform the predictions and targets before computing the loss.
+                Note that negative targets are clamped to 0. Default is False.
 
         """
 
@@ -369,8 +371,7 @@ class RegressionLoss(nn.Module):
                     'must be calculated per sample. Use `sample_wise=True` with NSE.'
                 )
 
-        self.log_transform = log_transform
-        self.epsilon = epsilon
+        self.sqrt_transform = sqrt_transform
 
         self.loss_fn = {
             'l1': nn.L1Loss,
@@ -400,9 +401,9 @@ class RegressionLoss(nn.Module):
             The loss, a scalar.
         """
 
-        if self.log_transform:
-            input = torch.log(input + self.epsilon)
-            target = torch.log(target + self.epsilon)
+        if self.sqrt_transform:
+            input = torch.sqrt(input)
+            target = torch.sqrt(target.clamp(min=0))
 
         if self.criterion == 'nse':
             if basin_std is None:
@@ -438,7 +439,6 @@ class RegressionLoss(nn.Module):
     def __repr__(self) -> str:
         criterion = self.criterion
         sample_wise = self.sample_wise
-        log_transform = self.log_transform
-        epsilon = self.epsilon
-        s = f'RegressionLoss({criterion=}, {sample_wise=}, {log_transform=}, {epsilon=})'
+        sqrt_transform = self.sqrt_transform
+        s = f'RegressionLoss({criterion=}, {sample_wise=}, {sqrt_transform=})'
         return s
