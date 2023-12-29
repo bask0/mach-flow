@@ -6,7 +6,7 @@ import numpy as np
 from dataclasses import fields, is_dataclass
 import os
 
-from utils.torch_modules import Normalize
+from utils.torch_modules import Normalize, RobustStandardize
 from utils.types import SamplePattern, SampleCoords
 
 
@@ -222,6 +222,9 @@ class MachFlowDataModule(pl.LightningDataModule):
             valid_date_slice: list[str | None] = [None, None],
             test_date_slice: list[str | None] = [None, None],
             predict_date_slice: list[str | None] = [None, None],
+            norm_features: bool = True,
+            norm_stat_features: bool = True,
+            norm_targets: bool = False,
             batch_size: int = 10,
             num_workers: int = 0,
             seed: int = 19) -> None:
@@ -245,9 +248,11 @@ class MachFlowDataModule(pl.LightningDataModule):
             fold_nr (int): The fold to use, a value in the range [0, num_cv_folds). Defaults to 0.
             [train/valid/test/predict]_date_slice: (slice): Slice to subset the respective set in time. Defaults 
                 to no subsetting.
+            norm_features (bool): If True, dynamic input features are noramalized. Defaults to True.
+            norm_stat_features (bool): If True, static input features are noramalized. Defaults to True.
+            norm_targets (bool): If True, targets are standardized (by division). Defaults to False.
             batch_size (int, optional): The minibatch batch size. Defaults to 10.
             num_workers (int, optional): The number of workers. Defaults to 10.
-                to ()
             seed (int, optional): The random seed. Defaults to 19.
         """
 
@@ -290,16 +295,29 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.predict_basins = self.ds.station.values
         self.add_cv_set_ids()
 
+        # Data normalization.
         train_data = self.get_dataset('train').ds
-        self.norm_args_features = Normalize.get_normalize_args(
-            ds=train_data, norm_variables=self.features
-        )
-        self.norm_args_targets = Normalize.get_normalize_args(
-            ds=train_data, norm_variables=self.targets
-        )
-        self.norm_args_stat_features = Normalize.get_normalize_args(
-            ds=train_data, norm_variables=self.stat_features
-        ) if self.stat_features is not None else None
+
+        if norm_features:
+            self.norm_args_features = Normalize.make_kwargs(
+                ds=train_data, norm_variables=self.features
+            )
+        else:
+            self.norm_args_features = None
+
+        if norm_stat_features and (self.stat_features is not None):
+            self.norm_args_stat_features = Normalize.make_kwargs(
+                ds=train_data, norm_variables=self.stat_features
+            )
+        else:
+            self.norm_args_stat_features = None
+
+        if norm_targets:
+            self.norm_args_targets = RobustStandardize.make_kwargs(
+                ds=train_data, norm_variables=self.targets
+            )
+        else:
+            self.norm_args_targets = None
 
     def get_dataset(self, mode: str) -> MachFlowData:
         """Returns a PyTorch Dataset of type MachFlowData.
