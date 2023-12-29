@@ -1,7 +1,7 @@
 
 import xarray as xr
 from torch.utils.data import Dataset, DataLoader, default_collate
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import numpy as np
 from dataclasses import fields, is_dataclass
 import os
@@ -223,7 +223,7 @@ class MachFlowDataModule(pl.LightningDataModule):
             test_date_slice: list[str | None] = [None, None],
             predict_date_slice: list[str | None] = [None, None],
             batch_size: int = 10,
-            num_workers: int = 10,
+            num_workers: int = 0,
             seed: int = 19) -> None:
         """Initialize MachFlowDataModule.
 
@@ -371,7 +371,7 @@ class MachFlowDataModule(pl.LightningDataModule):
             dataset=data,
             shuffle=mode=='train',
             batch_size=self.batch_size,
-            num_workers=self.num_workers,
+            num_workers=0 if mode =='predict' else self.num_workers,
             collate_fn=collate_dataclass
         )
 

@@ -345,7 +345,8 @@ class Tuner(object):
             logger.warning('Tuning is skipped ue to \'--skip_tuning\'.')
             if not os.path.exists(self.exp_path_tune):
                 raise RuntimeError(
-                    'no tuning path found but \'--skip_tuning\'. Did you run tuning beforehand?'
+                    'no tuning runs found but \'--skip_tuning\'. Did you run tuning beforehand? '
+                    f'`{self.exp_path_tune}`'
                 )
             return
 

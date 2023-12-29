@@ -11,7 +11,7 @@ if __name__ == '__main__':
 
     parser = ArgumentParser()
     parser.add_argument(
-        '--log_dir', type=str, default='./runs'
+        '--log_dir', type=str, default='../runs'
     )
     parser.add_argument(
         '--targets', nargs='+', type=str, default=['Qmm']

@@ -604,8 +604,12 @@ class Normalize(torch.nn.Module):
             )
         torch_dtype = TORCH_DTYPES[dtype]
 
-        self.means = torch.as_tensor(means, dtype=torch_dtype)
-        self.stds = torch.as_tensor(stds, dtype=torch_dtype)
+        #self.means = torch.as_tensor(means, dtype=torch_dtype)
+        #self.stds = torch.as_tensor(stds, dtype=torch_dtype)
+
+        self.register_buffer('means', torch.as_tensor(means), persistent=True)
+        self.register_buffer('stds', torch.as_tensor(stds), persistent=True)
+
         self.dim = features_dim
 
     def forward(self, x: Tensor, invert: bool = False) -> Tensor:

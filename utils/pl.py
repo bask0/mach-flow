@@ -1,7 +1,7 @@
 from typing import Any, Sequence
-import pytorch_lightning as pl
-from pytorch_lightning.cli import LightningCLI
-from pytorch_lightning.callbacks import BasePredictionWriter
+import lightning.pytorch as pl
+from lightning.pytorch.cli import LightningCLI
+from lightning.pytorch.callbacks import BasePredictionWriter
 import logging
 from torch.utils.data import DataLoader
 import xarray as xr
@@ -203,7 +203,7 @@ class MyLightningCLI(LightningCLI):
             self.config['trainer']['max_epochs'] = 2
 
         self.config[f'{self.subc}trainer.logger'] = {
-            'class_path': 'pytorch_lightning.loggers.tensorboard.TensorBoardLogger',
+            'class_path': 'lightning.pytorch.loggers.tensorboard.TensorBoardLogger',
             'init_args': {
                 'save_dir': self.directory,
                 'version': self.version,
