@@ -32,13 +32,13 @@ fi
 echo "Selected model: $model"
 
 # Define the script path
-SCRIPT_PATH="my/script.py"
-COMMAND="python ${SCRIPT_PATH} -m ${model}"
+SCRIPT_PATH="basin_level/cli.py"
+COMMAND="python ${SCRIPT_PATH} --model ${model}"
 
-for c in {""," -c static_all.yaml"," -c static_dred.yaml"}\
-`       `{""," -c expectiles.yaml"}\
-`       `{""," -c sqrt_trans.yaml"} ; do
+for c in {""," -c basin_level/static_all.yaml"," -c basin_level/static_dred.yaml"}\
+`       `{""," -c basin_level/expectiles.yaml"}\
+`       `{""," -c basin_level/sqrt_trans.yaml"} ; do
     CMD="${COMMAND}${c}"
     echo "Running: ${CMD}"
-    # eval $CMD
+    eval $CMD
 done
