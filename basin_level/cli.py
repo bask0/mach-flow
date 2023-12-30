@@ -101,6 +101,6 @@ if __name__ == '__main__':
         log_dir='../runs'
         )
 
-    tuner.tune(n_trials=20)
+    tuner.tune(n_trials=80)
 
     tuner.xval()
