@@ -261,14 +261,16 @@ def plot_model_comp(
     num_metrics = len(metrics)
 
     fig, axes = plt.subplots(
-        2, num_metrics, figsize=(3 * num_metrics, 6), sharey='row', squeeze=False,
-        gridspec_kw={'height_ratios': [10, 5], 'hspace': 0.3})
+        2, num_metrics, figsize=(3 * num_metrics, 8), sharey='row', squeeze=False,
+        gridspec_kw={'height_ratios': [1, 1], 'hspace': 0.2})
 
+    directions = []
     for i, metric in enumerate(metrics):
 
         da = ds[metric]
         rel_metrics = da - da.sel(run=ref)
-        mcolors = ModelColors(cmap='tab10')
+        directions.append(da.attrs.get('direction', 'none'))
+        mcolors = ModelColors(cmap='tab20')
 
         for run in da.run.values:
 
@@ -311,17 +313,28 @@ def plot_model_comp(
 
 
     axes[0, 0].set_ylabel('Cummulative probability')
-    axes[0, 0].legend(frameon=False, fontsize=7)
+    axes[0, 0].legend(frameon=False, fontsize=7, loc='upper left')
 
-    for ax in axes[1, :]:
+    for i, ax in enumerate(axes[1, :]):
+        direction = directions[i]
         xmin, xmax = ax.get_xlim()
         ax.axvline(0, color='0.2', ls=':', lw=0.8)
+
+        if direction == 'max':
+            x_pos = -(xmax - xmin) * 0.02
+            ha = 'right'
+            arrow = 'larrow'
+        else:
+            x_pos = (xmax - xmin) * 0.02
+            ha = 'left'
+            arrow = 'rarrow'
+
         ax.text(
-            -(xmax- xmin) * 0.02, 1.5, f'{ref} better',
-            bbox=dict(boxstyle='larrow,pad=0.2',
+            x_pos, 1.5, f'{ref} better',
+            bbox=dict(boxstyle=f'{arrow},pad=0.2',
             fc='0.7', ec='none', alpha=0.4),
             color='0.2',
-            va='center', ha='right', fontsize=9)
+            va='center', ha=ha, fontsize=9)
 
     yticklabels = [run for run in ds.run.values if run != ref]
     axes[1, 0].set_yticks(np.arange(1, len(yticklabels) + 1), yticklabels, size=9)
