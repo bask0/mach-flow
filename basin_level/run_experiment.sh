@@ -35,9 +35,9 @@ echo "Selected model: $model"
 SCRIPT_PATH="basin_level/cli.py"
 COMMAND="python ${SCRIPT_PATH} --model ${model}"
 
-for c in {""," -c basin_level/static_all.yaml"," -c basin_level/static_dred.yaml"}\
+for c in {""," -c basin_level/staticall.yaml"," -c basin_level/staticdred.yaml"}\
 `       `{""," -c basin_level/expectiles.yaml"}\
-`       `{""," -c basin_level/sqrt_trans.yaml"} ; do
+`       `{""," -c basin_level/sqrttrans.yaml"} ; do
     CMD="${COMMAND}${c}"
     echo "Running: ${CMD}"
     eval $CMD
