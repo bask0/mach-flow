@@ -331,7 +331,7 @@ class TemporalNet(LightningNet, abc.ABC):
             # Static encoding and unsqueezing: (B, C) ->  (B, E, 1)
             s_enc = self.static_encoding(s.unsqueeze(-1))
 
-            # Add static encoding to dynamic encoding: (B, E, S) + (B, E, 1) -> (B, E, S)
+            # Multiply static encoding and dynamic encoding: (B, E, S) + (B, E, 1) -> (B, E, S)
             x_enc = x_enc * s_enc
 
         return x_enc
