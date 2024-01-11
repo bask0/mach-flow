@@ -8,7 +8,7 @@ from utils.metrics import compute_metrics
 from utils.data import load_xval_test_set
 
 
-OPTUNA_PLOTS = [
+OPTUNA_PLOTS_TUNING = [
     'plot_slice',
     'plot_contour',
     'plot_rank',
@@ -19,10 +19,20 @@ OPTUNA_PLOTS = [
     'plot_timeline',
 ]
 
+OPTUNA_PLOTS_XVAL = [
+    'plot_intermediate_values',
+    'plot_timeline',
+]
 
-def study_plots(study: optuna.Study, out_dir: str):
-    for optuna_plot in OPTUNA_PLOTS:
-        try: 
+
+def study_plots(study: optuna.Study, out_dir: str, is_xval: bool = False):
+    if is_xval:
+        optuna_plots =  OPTUNA_PLOTS_XVAL
+    else:
+        optuna_plots =  OPTUNA_PLOTS_TUNING
+
+    for optuna_plot in optuna_plots:
+        try:
             fig = getattr(optuna.visualization, optuna_plot)(study)
 
             fig.write_image(os.path.join(out_dir, optuna_plot + '.png'), scale=2)
@@ -38,7 +48,7 @@ def study_plots(study: optuna.Study, out_dir: str):
 
     create_html(dir=out_dir)
 
-def study_summary(study_path: str, study_name: str):
+def study_summary(study_path: str, study_name: str, is_xval: bool = False):
 
     base_dir = os.path.dirname(study_path)
     plot_dir = os.path.join(base_dir, 'optuna_plots')
@@ -46,7 +56,7 @@ def study_summary(study_path: str, study_name: str):
 
     study = optuna.load_study(study_name=study_name, storage=f'sqlite:///{study_path}')
 
-    study_plots(study=study, out_dir=plot_dir)
+    study_plots(study=study, out_dir=plot_dir, is_xval=is_xval)
 
 
 def get_cdf(da: xr.DataArray) -> tuple[np.ndarray, np.ndarray, float]:
