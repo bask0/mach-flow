@@ -5,7 +5,7 @@ model=""
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 -m [LSTM|TCN]"
+    echo "Usage: $0 -m [LSTM|TCN|MHA]"
     exit 1
 }
 
@@ -23,8 +23,8 @@ if [ -z "$model" ]; then
 fi
 
 # Validate the model argument
-if [ "$model" != "LSTM" ] && [ "$model" != "TCN" ]; then
-    echo "Error: Invalid model '$model'. Choose either 'LSTM' or 'TCN'."
+if [ "$model" != "LSTM" ] && [ "$model" != "TCN" ] && [ "$model" != "MHA" ]; then
+    echo "Error: Invalid model '$model'. Choose either 'LSTM', 'TCN', or 'MHA'."
     exit 1
 fi
 
