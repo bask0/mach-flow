@@ -839,3 +839,31 @@ class DataTansform(torch.nn.Module):
 
     def __repr__(self) -> str:
         return str(self.transform)
+
+
+class SeqZeroPad(torch.nn.Module):
+    """Implements zero padding for causal 1D convolution.
+
+    Padds a 3D tensor at the beginning of the sequence dimension (last one).
+
+    Shapes:
+        x: (batch, channels, sequence)
+        out: (batch, channels, sequence + n_pad)
+    """
+    def __init__(self, n_pad: int): 
+        """Initialize SeqZeroPad.
+
+        Args:
+            n_pad: The number of zeros to pad.
+        """
+        super().__init__()
+
+        self.n_pad = n_pad
+
+    def forward(self, x: Tensor) -> Tensor:
+        if (ndim := x.ndim) != 3:
+            raise ValueError(
+                f'input must have three dimensions (batch, channel, sequence), has {ndim}.'
+            )
+
+        return torch.nn.functional.pad(x, (self.n_pad, 0, 0, 0, 0, 0), mode='constant', value=0.0)
