@@ -252,6 +252,58 @@ class LightningNet(pl.LightningModule):
         return super().on_train_start()
 
 
+class TemporalCombine(torch.nn.Module):
+    """Combine dynamic and static features.
+
+    Shapes:
+        x: The dynamic inputs, shape (batch, num_dynamic_in, sequence)
+        s: The static inputs, shape (batch, num_static_in)
+
+        output: A tensor of combined dynamic and static features, shape (batch, num_out, sequence).
+
+    Args:
+        num_dynamic_in: Number of dynamic inputs.
+        num_static_in: Number of static inputs.
+        num_out: Encoding size.
+        hidden_size_factor: The hidden size is num_out * hidden_size_factor.
+        dropout: Dropout applied after each layer but last, a float in the range [0, 1]. Default is 0.0.
+
+    """
+    def __init__(
+            self,
+            num_dynamic_in: int,
+            num_static_in: int,
+            num_out: int,
+            num_layers: int,
+            hidden_size_factor: int = 2,
+            dropout: float = 0.0) -> None:
+        """Initialize TemporalCombine layer."""
+        super().__init__()
+
+        self.encoding_layer = EncodingModule(
+            num_in=num_dynamic_in + num_static_in,
+            num_enc=num_out,
+            num_layers=num_layers,
+            dropout=dropout,
+            hidden_size_factor=hidden_size_factor,
+            activation=torch.nn.Tanh(),
+            activation_last=torch.nn.Tanh()
+        )
+
+    def get_expand_arg(self, x: Tensor, s: Tensor) -> list[int]:
+        expand_size = list(x.shape)
+        expand_size[1] = s.shape[-1]
+
+        return expand_size
+
+    def forward(self, x: Tensor, s: Tensor) -> Tensor:
+        s = s.unsqueeze(-1).expand(*self.get_expand_arg(x=x, s=s))
+
+        xs = torch.cat((x, s), dim=1)
+
+        return self.encoding_layer(xs)
+
+
 class TemporalNet(LightningNet, abc.ABC):
     def __init__(
             self,
@@ -259,45 +311,62 @@ class TemporalNet(LightningNet, abc.ABC):
             num_dynamic_in: int,
             num_outputs: int,
             model_dim: int = 8,
-            enc_layers: int = 1,
             enc_dropout: float = 0.0,
+            pre_fusion: bool = True,
             **kwargs) -> None:
 
         super().__init__(**kwargs)
 
-        # Static input encoding
+        self.pre_fusion = pre_fusion
+
+        # Input encoding
         # -------------------------------------------------
 
-        self.static_encoding = EncodingModule(
-            num_in=num_static_in,
-            num_enc=model_dim - 1,
-            num_layers=enc_layers,
-            dropout=enc_dropout,
-            activation=torch.nn.ReLU(),
-            activation_last=torch.nn.Sigmoid()
-        )
+        if self.pre_fusion:
 
-        # Dynamic input encoding
+            self.pre_fusion_layer = TemporalCombine(
+                num_dynamic_in=num_dynamic_in,
+                num_static_in=num_static_in,
+                num_out=model_dim,
+                num_layers=2,
+                dropout=0.1,
+            )
+
+        else:
+
+            self.input_layer = torch.nn.Conv1d(
+                in_channels=num_dynamic_in,
+                out_channels=model_dim,
+                kernel_size=1
+            )
+
+        self.in_dropout1d = torch.nn.Dropout1d(enc_dropout)
+
+        # Temporal layer
         # -------------------------------------------------
 
-        self.dynamic_encoding = EncodingModule(
-            num_in=num_dynamic_in,
-            num_enc=model_dim - 1,
-            num_layers=enc_layers,
-            dropout=enc_dropout,
-            activation=torch.nn.Tanh(),
-            activation_last=torch.nn.Tanh()
-        )
+        # >>>> Is defined in subclass.
 
         # Output
         # -------------------------------------------------
 
+        if not self.pre_fusion:
+            self.post_fusion_layer = TemporalCombine(
+                    num_dynamic_in=model_dim,
+                    num_static_in=num_static_in,
+                    num_out=model_dim,
+                    num_layers=2,
+                    dropout=0.1,
+                )
+
+        self.out_dropout1d = torch.nn.Dropout1d(enc_dropout)
+
         self.pad_tau = PadTau()
 
-        self.out_layer = torch.nn.Conv1d(
-            in_channels=model_dim + 1,
-            out_channels=num_outputs,
-            kernel_size=1
+        self.output_layer = torch.nn.Conv1d(
+                in_channels=model_dim + 1,
+                out_channels=num_outputs,
+                kernel_size=1
         )
 
         self.out_activation = torch.nn.Softplus()
@@ -307,6 +376,12 @@ class TemporalNet(LightningNet, abc.ABC):
     def temporal_forward(self, x: Tensor) -> Tensor:
         """Temporal layer forward pass, must be overridden in subclass.
 
+        Shapes:
+            x: (batch, channels, sequence).
+
+        Returns:
+            Tensor with same shape as input (batch, channels, sequence).
+
         Args:
             x: The input tensor of shape (batch, channels, sequence),
 
@@ -314,44 +389,36 @@ class TemporalNet(LightningNet, abc.ABC):
             A tensor of same shape as the input.
         """
 
-    def encode(self, x: Tensor, s: Tensor | None) -> Tensor:
-        """Encode dynamic and static features.
-
-        Args:
-            x: The dynamic inputs, shape (batch, dynamic_channels, sequence)
-            x: The static inputs, shape (batch, static_channels)
-
-        Returns:
-            A tensor of combined dynamic and static features, shape (batch, encoding_dim, sequence).
-        """
-        # Dynamic encoding: (B, D, S) -> (B, E, S)
-        x_enc = self.dynamic_encoding(x)
-
-        if s is not None:
-            # Static encoding and unsqueezing: (B, C) ->  (B, E, 1)
-            s_enc = self.static_encoding(s.unsqueeze(-1))
-
-            # Multiply static encoding and dynamic encoding: (B, E, S) + (B, E, 1) -> (B, E, S)
-            x_enc = x_enc * s_enc
-
-        return x_enc
-
     def forward(self, x: Tensor, s: Tensor, tau: float) -> Tensor:
 
-        # Encoding of dynamic and static features: (B, D, S), (B, C) -> (B, E - 1, S)
-        enc = self.encode(x=x, s=s)
+        if self.pre_fusion:
 
-        # Pad tau: (B, E - 1, S) -> (B, E, S)
-        enc = self.pad_tau(enc, tau)
+            # Fusion of dynamic and static features: (B, D, S), (B, C) -> (B, E, S)
+            enc = self.pre_fusion_layer(x=x, s=s)
+
+        else:
+
+            # Encoding of dynamic features: (B, D, S) -> (B, E, S)
+            enc = self.input_layer(x)
+
+        # 2D dropout.
+        enc = self.in_dropout1d(enc)
 
         # Temporal layer: (B, E, S) -> (B, E, S)
         out = self.temporal_forward(enc)
 
-        # Pad tau: (B, E, S) -> (B, E + 1, S)
-        out = self.pad_tau(out, tau)
+        if not self.pre_fusion:
+            # Fusion of dynamic and static features: (B, E, S), (B, C) -> (B, E, S)
+            out = self.post_fusion_layer(x=out, s=s)
 
-        # Output layer and activation: (B, E + 1, S) -> (B, O, S)
-        out = self.out_layer(out)
+        # 2D dropout.
+        enc = self.out_dropout1d(enc)
+
+        # Pad tau: (B, E, S) -> (B, E + 1, S)
+        out = self.pad_tau(x=out, tau=tau)
+
+        # Output layer, and activation: (B, E + 1, S) -> (B, O, S)
+        out = self.output_layer(out)
         out = self.out_activation(out)
 
         return out

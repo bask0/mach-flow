@@ -9,7 +9,7 @@ def get_enc_search_space(trial: optuna.Trial) -> dict:
     config = dict(
         model_dim=trial.suggest_categorical('model_dim', [64, 128, 256]),
         enc_dropout=trial.suggest_categorical('enc_dropout', [0.0, 0.2]),
-        enc_layers=trial.suggest_categorical('enc_layers', [1, 2]),
+        pre_fusion=trial.suggest_categorical('pre_fusion', [False, True]),
     )
 
     return config
