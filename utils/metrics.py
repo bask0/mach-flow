@@ -6,7 +6,7 @@ from typing import Iterable
 def common_mask(
         obs: xr.DataArray,
         mod: xr.DataArray,
-        dim: str | Iterable[str] | None,
+        dim: str | Iterable[str] | None = None,
         drop_empty: bool = True) -> tuple[xr.DataArray, xr.DataArray]:
     mask = mod.notnull() & obs.notnull()
 
@@ -19,6 +19,7 @@ def common_mask(
 
     return obs, mod
 
+
 def _bias(
         obs: xr.DataArray,
         mod: xr.DataArray,
@@ -27,6 +28,7 @@ def _bias(
     bias = mod.mean(dim=dim, skipna=True) - obs.mean(dim=dim, skipna=True)
 
     return bias.compute()
+
 
 def _absbias(
         obs: xr.DataArray,
@@ -37,12 +39,14 @@ def _absbias(
 
     return absbias.compute()
 
+
 def _mse(
         obs: xr.DataArray,
         mod: xr.DataArray,
         dim: str | Iterable[str] | None) -> xr.DataArray:
 
     return ((mod - obs)**2).mean(dim=dim).compute()
+
 
 def _rmse(
         obs: xr.DataArray,
@@ -51,12 +55,14 @@ def _rmse(
 
     return (_mse(obs=obs, mod=mod, dim=dim) ** 0.5).compute()
 
+
 def _r(
         obs: xr.DataArray,
         mod: xr.DataArray,
         dim: str | Iterable[str] | None) -> xr.DataArray:
 
     return xr.corr(obs, mod, dim=dim).compute()
+
 
 def _nse(
         obs: xr.DataArray,
@@ -70,6 +76,7 @@ def _nse(
 
     return nse.compute()
 
+
 def _nnse(
         obs: xr.DataArray,
         mod: xr.DataArray,
@@ -78,6 +85,7 @@ def _nnse(
     nse = _nse(obs=obs, mod=mod, dim=dim)
 
     return (1 / (2 - nse)).compute()
+
 
 def _kge(
         obs: xr.DataArray,
@@ -92,8 +100,109 @@ def _kge(
 
     return (1 - value ** 0.5).compute()
 
+
+def _get_sorted_fraction(x, fraction, direction):
+    """Get a fraction of the smallest or largest values along the last axis.
+
+    Note: Instead of cutting the fraction, we fill in NaNs to dead with different number of values.
+
+    Args:
+        x: a numpy array
+        fraction: the fraction of lowest (if `direction='low'`) or highest (if `direction='high'`) values to extract.
+        direction: 'low' for lowest or 'high' for largest values.
+
+    Returns:
+        A numpy Array with lowest or largest values up to given fraction, filled with NaN where above threshold.
+    """
+
+    if not (0 <= fraction <=  1):
+        raise ValueError(
+            f'fraction must be in range [0, 1], is {fraction}.'
+        )
+
+    for idx in np.ndindex(x.shape[:-1]):
+
+        if direction == 'high':
+            x_sorted = -np.sort(-x[idx])
+        elif direction == 'low':
+            x_sorted = np.sort(x[idx])
+        else:
+            raise ValueError(
+                f'direcion mus be \'low\' or \'high\', is \'{direction}\'.'
+            )
+
+        num_valid = np.isfinite(x_sorted).sum()
+        num_cut = np.round(fraction * num_valid).astype(int)
+        x_sorted[-num_cut:] = np.nan
+
+        x[idx] = x_sorted
+
+    return x
+
+
+def _get_xflow_bias(
+        obs: xr.DataArray,
+        mod: xr.DataArray,
+        dim: str,
+        fraction: float,
+        direction: str) -> xr.DataArray:
+
+    obs = obs.transpose(..., dim)
+    mod = mod.transpose(..., dim)
+
+    if (a := obs.shape) != (b := mod.shape):
+        raise ValueError(
+            f'`obs` and `mod` must have same shape, but they are {a} and {b}.'
+        )
+
+    obs_da, mod_da = common_mask(obs=obs, mod=mod, dim=dim, drop_empty=True)
+
+    obs_s = _get_sorted_fraction(x=obs_da.values, fraction=fraction, direction=direction)
+    mod_s = _get_sorted_fraction(x=mod_da.values, fraction=fraction, direction=direction)
+
+    if direction == 'low':
+        obs_s = np.log(obs_s.clip(1e-6, None))
+        mod_s = np.log(mod_s.clip(1e-6, None))
+        
+    qsl = np.nansum(mod_s - np.nanmin(mod_s, axis=-1, keepdims=True), axis=-1)
+    qol = np.nansum(obs_s - np.nanmin(obs_s, axis=-1, keepdims=True), axis=-1)
+
+    res = -1 * (qsl - qol) / (qol + 1e-6)
+
+    da_res = obs.isel({dim: 0}).drop_vars(dim).copy().load()
+    da_res.values[:] = res * 100
+
+    return da_res
+
+
+def _flv(
+        obs: xr.DataArray,
+        mod: xr.DataArray,
+        dim: str | Iterable[str] | None) -> xr.DataArray:
+
+    if not isinstance(dim, str):
+        raise ValueError(
+            '`flv` not implemented for more than on dimension.'
+        )
+
+    return _get_xflow_bias(obs=obs, mod=mod, dim=dim, fraction=0.3, direction='low').compute()
+
+
+def _fhv(
+        obs: xr.DataArray,
+        mod: xr.DataArray,
+        dim: str | Iterable[str] | None) -> xr.DataArray:
+
+    if not isinstance(dim, str):
+        raise ValueError(
+            '`fhv` not implemented for more than on dimension.'
+        )
+
+    return _get_xflow_bias(obs=obs, mod=mod, dim=dim, fraction=0.02, direction='high').compute()
+
+
 METRIC_MAPPING = dict(
-    bias={'func': _bias, 'name': 'Bias', 'direction': 'min'},
+    bias={'func': _bias, 'name': 'Bias', 'direction': 'none'},
     absbias={'func': _absbias, 'name': 'Absolute bias', 'direction': 'min'},
     mse={'func': _mse, 'name': 'Mean squared error', 'direction': 'min'},
     rmse={'func': _rmse, 'name': 'Root mean squared error', 'direction': 'min'},
@@ -101,6 +210,8 @@ METRIC_MAPPING = dict(
     nnse={'func': _nnse, 'name': 'Normalized modeling efficiency', 'direction': 'max'},
     kge={'func': _kge, 'name': 'Kling–Gupta efficiency', 'direction': 'max'},
     r={'func': _r, 'name': 'Pearson\'s correlation', 'direction': 'max'},
+    flv={'func': _flv, 'name': 'Percentage bias low flow', 'direction': 'none'},
+    fhv={'func': _fhv, 'name': 'Percentage bias high flow', 'direction': 'none'},
 )
 
 
