@@ -373,6 +373,7 @@ class Tuner(object):
         study = self.new_study(db_path=self.db_path_xval, is_tune=False)
         study.optimize(self.get_objective(is_tune=False))
         self.plot_xval_cdf()
+        self.summarize_xval()
 
     @staticmethod
     def get_best_config_and_ckpt(study: optuna.Study) -> tuple[str, str]:
@@ -395,7 +396,10 @@ class Tuner(object):
         return configs_and_ckpts
 
     def summarize_tuning(self) -> None:
-        study_summary(study_path=self.db_path_tune, study_name=self.model)
+        study_summary(study_path=self.db_path_tune, study_name=self.model, is_xval=False)
+
+    def summarize_xval(self) -> None:
+        study_summary(study_path=self.db_path_xval, study_name=self.model, is_xval=True)
 
     @staticmethod
     def get_test_slice(cli: 'MyLightningCLI') -> slice:
