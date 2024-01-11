@@ -8,14 +8,16 @@ def common_mask(
         mod: xr.DataArray,
         dim: str | Iterable[str] | None = None,
         drop_empty: bool = True) -> tuple[xr.DataArray, xr.DataArray]:
-    mask = mod.notnull() & obs.notnull()
+
+    only_mod_dims = tuple(np.setdiff1d(np.array(mod.dims), np.array(obs.dims)))
+    mask = mod.notnull().any(only_mod_dims) & obs.notnull()
 
     if drop_empty:
         all_miss = mask.any(dim).compute()
         mask = mask.where(all_miss, drop=True)
 
-    obs = obs.where(mask)
-    mod = mod.where(mask)
+    obs = obs.where(mask).compute()
+    mod = mod.where(mask).compute()
 
     return obs, mod
 
@@ -150,10 +152,10 @@ def _get_xflow_bias(
     obs = obs.transpose(..., dim)
     mod = mod.transpose(..., dim)
 
-    if (a := obs.shape) != (b := mod.shape):
-        raise ValueError(
-            f'`obs` and `mod` must have same shape, but they are {a} and {b}.'
-        )
+    # if (a := obs.shape) != (b := mod.shape):
+    #     raise ValueError(
+    #         f'`obs` and `mod` must have same shape, but they are {a} and {b}.'
+    #     )
 
     obs_da, mod_da = common_mask(obs=obs, mod=mod, dim=dim, drop_empty=True)
 
@@ -169,7 +171,7 @@ def _get_xflow_bias(
 
     res = -1 * (qsl - qol) / (qol + 1e-6)
 
-    da_res = obs.isel({dim: 0}).drop_vars(dim).copy().load()
+    da_res = mod.isel({dim: 0}).drop_vars(dim).copy().load()
     da_res.values[:] = res * 100
 
     return da_res
