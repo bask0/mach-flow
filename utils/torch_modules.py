@@ -143,8 +143,9 @@ class EncodingModule(torch.nn.Module):
 
         Args:
             num_in (int): the input channel size (C_in).
-            num_enc (int): the encoding size.
-            num_layers (int): the number of layers (C_out).
+            num_enc (int): the encoding size (C_out).
+            num_layers (int): the number of layers. Note that num_layers=1 is a linear transformation with
+                activation_last applied afterwards.
             dropout (float): the dropout applied to all but the output layer.
             unsqueeze_input (bool): whether to unsqueeze the input.
             hidden_size_factor (int): the hidden size as a factor of the encoding size (`num_enc`);
