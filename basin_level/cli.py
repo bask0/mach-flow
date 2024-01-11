@@ -71,8 +71,9 @@ class MHASearchSpace(SearchSpace):
         config = {
             'model': dict(
                 **get_enc_search_space(trial),
-                mha_nhead=trial.suggest_categorical('mha_nhead', [2, 4, 8]),
+                mha_heads=trial.suggest_categorical('mha_heads', [2, 4, 8]),
                 mha_layers=trial.suggest_categorical('mha_layers', [1, 2, 3]),
+                mha_max_context=trial.suggest_categorical('mha_max_context', [50, 150, 250]),
                 mha_dropout=trial.suggest_categorical('mha_dropout', [0.0, 0.1, 0.2]),
             ),
             'optimizer': dict(
