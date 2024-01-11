@@ -288,7 +288,7 @@ def load_xval(xval_dir: str | os.PathLike, sources: int | list[int] | None = Non
         engine='zarr',
         concat_dim='cv',
         combine='nested',
-        preprocess=lambda x: x[mod_vars])
+        preprocess=lambda x: x[mod_vars].sel(tau=0.5))
 
     for var in mod_vars:
         ds[var] = ds_mod[var]
