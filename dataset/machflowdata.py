@@ -5,6 +5,7 @@ import lightning.pytorch as pl
 import numpy as np
 from dataclasses import fields, is_dataclass
 import os
+import math
 
 from utils.torch_modules import Normalize, RobustStandardize
 from utils.types import SamplePattern, SampleCoords
@@ -83,8 +84,8 @@ class MachFlowData(Dataset):
             indices = np.argwhere(target_rolling_mask.values)[:, 0]
             if len(indices) < 1:
                 raise RuntimeError(
-                    f'Station #{station} has no window with window_size={self.window_size} with at least '
-                    f'window_min_count={self.window_min_count} valid time steps.'
+                    f'Station #{station} ({data_f.station.item()}) has no window with window_size={self.window_size} '
+                    f'with at least window_min_count={self.window_min_count} valid time steps.'
                 )
 
             slice_end = self.rs.choice(indices) + 1  # for slicing we need end index + 1
@@ -218,6 +219,7 @@ class MachFlowDataModule(pl.LightningDataModule):
             drop_all_nan_stations: bool = True,
             num_cv_folds: int = 8,
             fold_nr: int = 0,
+            use_additional_basins_as_training: bool = False,
             train_date_slice: list[str | None] = [None, None],
             valid_date_slice: list[str | None] = [None, None],
             test_date_slice: list[str | None] = [None, None],
@@ -246,6 +248,8 @@ class MachFlowDataModule(pl.LightningDataModule):
                 Applies for all modes but 'prediction'. Defaults to True.
             num_cv_folds (int): The number of cross-validation sets (folds). Defaults to 6.
             fold_nr (int): The fold to use, a value in the range [0, num_cv_folds). Defaults to 0.
+            use_additional_basins_as_training (bool): whether to use additional basins (such strongly affected by
+                humans) for training. Default is False.
             [train/valid/test/predict]_date_slice: (slice): Slice to subset the respective set in time. Defaults 
                 to no subsetting.
             norm_features (bool): If True, dynamic input features are noramalized. Defaults to True.
@@ -282,8 +286,13 @@ class MachFlowDataModule(pl.LightningDataModule):
 
         # Drop all stations with all-NaN targets.
         if drop_all_nan_stations:
-            mask = self.ds[self.targets].to_array('variable').notnull().any('variable')
-            stations = mask.station.values[mask.any('time')]
+            mask = self.ds[self.targets].to_array('variable').notnull().any('variable').compute()
+            train_mask = mask.sel(time=self.train_date_slice).any('time').compute()
+            valid_mask = mask.sel(time=self.valid_date_slice).any('time').compute()
+            test_mask = mask.sel(time=self.valid_date_slice).any('time').compute()
+            mask = train_mask & valid_mask & test_mask
+
+            stations = mask.station.values[mask]
         else:
             stations = self.ds.station.values
 
@@ -292,11 +301,18 @@ class MachFlowDataModule(pl.LightningDataModule):
 
         # Split basins into training, validation, and test set.
         self.train_basins, self.val_basins, self.test_basins = self.split_basins(basins=stations, folds=self.ds.folds)
+
+        if use_additional_basins_as_training:
+            additional_basins = list(self.ds.station.where(self.ds.folds.load() == -1, drop=True).values)
+            additional_basins = [basin for basin in additional_basins if basin in stations]
+            self.train_basins += additional_basins
+
         self.predict_basins = self.ds.station.values
         self.add_cv_set_ids()
 
         # Data normalization.
         train_data = self.get_dataset('train').ds
+
 
         if norm_features:
             self.norm_args_features = Normalize.make_kwargs(
@@ -318,6 +334,10 @@ class MachFlowDataModule(pl.LightningDataModule):
             )
         else:
             self.norm_args_targets = None
+
+        self.num_steps_per_epoch = math.ceil(
+            self.train_num_samples_per_epoch * len(self.train_basins) / self.batch_size
+        )
 
     def get_dataset(self, mode: str) -> MachFlowData:
         """Returns a PyTorch Dataset of type MachFlowData.
