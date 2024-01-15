@@ -36,6 +36,7 @@ SCRIPT_PATH="basin_level/cli.py"
 COMMAND="python ${SCRIPT_PATH} --model ${model}"
 
 for c in {""," -c basin_level/staticall.yaml"," -c basin_level/staticdred.yaml"}\
+`       `{""," -c basin_level/allbasins.yaml"}\
 `       `{""," -c basin_level/sqrttrans.yaml"} ; do
     CMD="${COMMAND}${c}"
     echo "Running: ${CMD}"
