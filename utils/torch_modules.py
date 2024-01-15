@@ -13,46 +13,7 @@ import xarray as xr
 
 from typing import Any, Callable
 
-
-def get_activation(activation: str | None) -> torch.nn.Module:
-    """Get PyTorch activation function by string query.
-
-    Args:
-        activation (str, None): activation function, one of `relu`, `leakyrelu`, `selu`, `sigmoid`, `softplus`,
-            `tanh`, `identity` (aka `linear` or `none`). If `None` is passed, `None` is returned.
-
-    Raises:
-        ValueError: if activation not found.
-
-    Returns:
-        PyTorch activation or None: activation function
-    """
-
-    if activation is None:
-        return torch.nn.Identity()
-
-    a = activation.lower()
-
-    if a == 'linear' or a == 'none':
-        a = 'identity'
-
-    activations = dict(
-        relu=torch.nn.ReLU,
-        leakyrelu=torch.nn.LeakyReLU,
-        selu=torch.nn.SELU,
-        sigmoid=torch.nn.Sigmoid,
-        softplus=torch.nn.Softplus,
-        tanh=torch.nn.Tanh,
-        identity=torch.nn.Identity
-    )
-
-    if a in activations:
-        return activations[a]()
-    else:
-        choices = ', '.join(list(activations.keys()))
-        raise ValueError(
-            f'activation `{activation}` not found, chose one of: {choices}.'
-        )
+from utils.torch import get_activation
 
 
 class Transform(torch.nn.Module):
@@ -867,3 +828,55 @@ class SeqZeroPad(torch.nn.Module):
             )
 
         return torch.nn.functional.pad(x, (self.n_pad, 0, 0, 0, 0, 0), mode='constant', value=0.0)
+
+
+class TemporalCombine(torch.nn.Module):
+    """Combine dynamic and static features.
+
+    Shapes:
+        x: The dynamic inputs, shape (batch, num_dynamic_in, sequence)
+        s: The static inputs, shape (batch, num_static_in)
+
+        output: A tensor of combined dynamic and static features, shape (batch, num_out, sequence).
+
+    Args:
+        num_dynamic_in: Number of dynamic inputs.
+        num_static_in: Number of static inputs.
+        num_out: Encoding size.
+        hidden_size_factor: The hidden size is num_out * hidden_size_factor.
+        dropout: Dropout applied after each layer but last, a float in the range [0, 1]. Default is 0.0.
+
+    """
+    def __init__(
+            self,
+            num_dynamic_in: int,
+            num_static_in: int,
+            num_out: int,
+            num_layers: int,
+            hidden_size_factor: int = 2,
+            dropout: float = 0.0) -> None:
+        """Initialize TemporalCombine layer."""
+        super().__init__()
+
+        self.encoding_layer = EncodingModule(
+            num_in=num_dynamic_in + num_static_in,
+            num_enc=num_out,
+            num_layers=num_layers,
+            dropout=dropout,
+            hidden_size_factor=hidden_size_factor,
+            activation=torch.nn.Tanh(),
+            activation_last=torch.nn.Tanh()
+        )
+
+    def get_expand_arg(self, x: Tensor, s: Tensor) -> list[int]:
+        expand_size = list(x.shape)
+        expand_size[1] = s.shape[-1]
+
+        return expand_size
+
+    def forward(self, x: Tensor, s: Tensor) -> Tensor:
+        s = s.unsqueeze(-1).expand(*self.get_expand_arg(x=x, s=s))
+
+        xs = torch.cat((x, s), dim=1)
+
+        return self.encoding_layer(xs)
