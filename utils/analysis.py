@@ -397,12 +397,14 @@ def plot_xval_cdf(
     ds[mod_name] = ds[mod_name].where(mask).compute()
     ds[ref_name] = ds[ref_name].where(mask).compute()
 
-    met = compute_metrics(metrics=['r', 'nse', 'absbias'], obs=ds[obs_name], mod=ds[mod_name], dim='time')
+    met = compute_metrics(
+        metrics=['r', 'nse', 'absbias', 'kge'], obs=ds[obs_name], mod=ds[mod_name], dim='time')
 
     if ref_name is None:
         met_ref = None
     else:
-        met_ref = compute_metrics(metrics=['r', 'nse', 'absbias'], obs=ds[obs_name], mod=ds[ref_name], dim='time')
+        met_ref = compute_metrics(
+            metrics=['r', 'nse', 'absbias', 'kge'], obs=ds[obs_name], mod=ds[ref_name], dim='time')
 
     plot_cdf(
         ds=met,
@@ -411,7 +413,6 @@ def plot_xval_cdf(
         title_postfix=subset_to_label(subset),
         **kwargs
     )
-
 
 
 head_string = \
