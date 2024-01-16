@@ -19,13 +19,10 @@ trainer:
         filename: 'best'
         save_last: true
         save_top_k: 1
-    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
-      init_args:
-        logging_interval: 'epoch'
   gradient_clip_val: 1.0
   fast_dev_run: false
   max_steps: -1
-  max_epochs: 80
+  max_epochs: -1
   overfit_batches: 0.0
   check_val_every_n_epoch: 1
   accumulate_grad_batches: 1
@@ -73,10 +70,6 @@ optimizer:
   init_args:
     lr: 0.01
     weight_decay: 0.01
-lr_scheduler:
-  class_path: torch.optim.lr_scheduler.OneCycleLR
-  init_args:
-    pct_start: 0.1
 criterion:
   name: l2
   sqrt_transform: false

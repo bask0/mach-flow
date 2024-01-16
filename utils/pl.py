@@ -225,19 +225,19 @@ class MyLightningCLI(LightningCLI):
             }
         }
 
-    @staticmethod
-    def link_optimizers_and_lr_schedulers(parser):
-        # Set lr_scheduler's num_training_steps from datamodule class
-        parser.link_arguments(
-            'optimizer.init_args.lr', 'lr_scheduler.init_args.max_lr', apply_on='parse')
-        # parser.link_arguments(
-        #     'data.num_steps_per_epoch', 'lr_scheduler.init_args.steps_per_epoch', apply_on='instantiate')
-        # parser.link_arguments(
-        #     'trainer.max_epochs', 'lr_scheduler.init_args.epochs', apply_on='parse')
-        parser.link_arguments(
-            'trainer.max_epochs', 'lr_scheduler.init_args.total_steps', apply_on='parse')
+    # @staticmethod
+    # def link_optimizers_and_lr_schedulers(parser):
+    #     # Set lr_scheduler's num_training_steps from datamodule class
+    #     parser.link_arguments(
+    #         'optimizer.init_args.lr', 'lr_scheduler.init_args.max_lr', apply_on='parse')
+    #     # parser.link_arguments(
+    #     #     'data.num_steps_per_epoch', 'lr_scheduler.init_args.steps_per_epoch', apply_on='instantiate')
+    #     # parser.link_arguments(
+    #     #     'trainer.max_epochs', 'lr_scheduler.init_args.epochs', apply_on='parse')
+    #     parser.link_arguments(
+    #         'trainer.max_epochs', 'lr_scheduler.init_args.total_steps', apply_on='parse')
 
-        LightningCLI.link_optimizers_and_lr_schedulers(parser)
+    #     LightningCLI.link_optimizers_and_lr_schedulers(parser)
 
 
 def get_dummy_cli() -> MyLightningCLI:
