@@ -114,7 +114,7 @@ if __name__ == '__main__':
     )
     sampler = optuna.samplers.TPESampler(
         consider_prior=False,
-        n_startup_trials=10,
+        n_startup_trials=15,
         seed=1,
         multivariate=True
     )
@@ -125,6 +125,6 @@ if __name__ == '__main__':
         log_dir='../runs'
         )
 
-    tuner.tune(n_trials=80)
+    tuner.tune(n_trials=60)
 
     tuner.xval()
