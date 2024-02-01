@@ -4,6 +4,7 @@ import shutil
 import yaml
 import tempfile
 import optuna
+from warnings import warn
 from optuna.integration import PyTorchLightningPruningCallback
 from typing import Type, Callable, TypeVar, TYPE_CHECKING
 
@@ -243,11 +244,11 @@ class Tuner(object):
             self,
             sampler: optuna.samplers.BaseSampler,
             pruner: optuna.pruners.BasePruner,
-            log_dir: str = 'runs',
-            overwrite: bool = True) -> None:
+            log_dir: str = 'runs') -> None:
 
         cli = get_dummy_cli()
 
+        self.overwrite = cli.config['config']
         self.is_dev = cli.config['dev']
         self.skip_tuning = cli.config['skip_tuning']
         search_spaces = get_search_spaces()
@@ -260,7 +261,6 @@ class Tuner(object):
         self.model = get_model_name_from_cli(cli)
         self.num_xval_folds = cli.config['data']['init_args']['num_cv_folds']
         self.targets = cli.config['data']['init_args']['targets']
-        self.overwrite = overwrite
 
         if self.model not in search_spaces:
             raise KeyError(
@@ -354,8 +354,12 @@ class Tuner(object):
             logger.warning('Setting `n_trials=2` for dev run.')
             n_trials = 2
 
-        if os.path.exists(self.exp_path_tune) and self.overwrite:
-            shutil.rmtree(self.exp_path_tune)
+        if os.path.exists(self.exp_path_tune):
+            if self.overwrite:
+                shutil.rmtree(self.exp_path_tune)
+            else:
+                warn(f'path exists and overwrite is False, skip tuning.\n`{self.exp_path_tune}`')
+                exit(0)
 
         os.makedirs(self.exp_path_tune)
 
@@ -365,8 +369,12 @@ class Tuner(object):
         self.summarize_tuning()
 
     def xval(self) -> None:
-        if os.path.exists(self.exp_path_xval) and self.overwrite:
-            shutil.rmtree(self.exp_path_xval)
+        if os.path.exists(self.exp_path_xval):
+            if self.overwrite:
+                shutil.rmtree(self.exp_path_xval)
+            else:
+                warn(f'path exists and overwrite is False, skip xval.\n`{self.exp_path_xval}`')
+                exit(0)
 
         os.makedirs(self.exp_path_xval)
 

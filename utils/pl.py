@@ -139,6 +139,10 @@ class MyLightningCLI(LightningCLI):
         # Training routine args
         # -------------------------------------
         parser.add_argument(
+            '--overwrite',
+            action='store_true',
+            help='overwrite existing runs. If not set, existing runs will be skipped.')
+        parser.add_argument(
             '--dev',
             action='store_true',
             help='quick dev run with one epoch and 1 batch.')
