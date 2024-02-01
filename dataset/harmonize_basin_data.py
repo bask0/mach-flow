@@ -275,7 +275,8 @@ def add_shape_area(ds: xr.Dataset, shapefile_path: str | os.PathLike, object_id:
 
     common_stations = np.intersect1d(sf.station, ds.station)
 
-    ds['area'].loc[{'station': common_stations}][:] = sf.sel(station=common_stations).Shape_Area
+    for station in common_stations:
+        ds['area'].loc[{'station': station}] = sf.sel(station=station).Shape_Area
 
     return ds
 
