@@ -25,11 +25,11 @@ def sel_cv_set(ds: xr.Dataset, cv_sets: int | list[int]) -> xr.Dataset:
     return ds.sel(station=ds.cv_set.isin(cv_sets))
 
 
-def load_xval_test_set(xval_dir: str | os.PathLike, num_expected_folds : int = 8) -> xr.Dataset:
+def load_xval_test_set(xval_dir: str | os.PathLike, num_expected_folds : int = 8, **subset) -> xr.Dataset:
 
     paths = glob(os.path.join(xval_dir, 'fold_*/preds.zarr'))
 
-    if n := len(paths) != num_expected_folds:
+    if (n := len(paths))!= num_expected_folds:
         raise ValueError(
             f'number of files found ({n}) not equal \'num_expected_folds\' (num_expected_folds) in \'{xval_dir}\'.'
         )
@@ -39,7 +39,7 @@ def load_xval_test_set(xval_dir: str | os.PathLike, num_expected_folds : int = 8
         engine='zarr',
         concat_dim='station',
         combine='nested', 
-        preprocess=lambda x: sel_cv_set(ds=x, cv_sets=2))
+        preprocess=lambda x: sel_cv_set(ds=x, cv_sets=2)).sel(**subset)
 
     return ds
 
@@ -98,9 +98,11 @@ class XvalResultCollection():
             self,
             path: os.PathLike | str,
             nonbool_kwords: list[str] | None = None,
-            exclude_kword: list[str] | None = None) -> None:
+            exclude_kword: list[str] | None = None,
+            **subset) -> None:
         self.nonbool_kwords = nonbool_kwords
         self.exclude_kword = exclude_kword
+        self.subset = subset
         self.xval_results = self.load_all_xval_test_sets(path)
         self.unique_configs = self.get_unique_configs()
         self.mod_vars = self.infer_mod_vars(xval_results=self.xval_results)
@@ -199,7 +201,7 @@ class XvalResultCollection():
                 if skip:
                     continue
 
-            xval_test_ds = load_xval_test_set(xval_path)
+            xval_test_ds = load_xval_test_set(xval_path, **self.subset)
 
             xval_res = XvalResult(model=model, config=conf, xrdata=xval_test_ds, path=xval_path)
 
@@ -218,7 +220,8 @@ class XvalResultCollection():
 def load_config_xval_test_set(
         path: os.PathLike | str,
         nonbool_kwords: list[str] | None = None,
-        exclude_kword: list[str] | None = None) -> xr.Dataset:
+        exclude_kword: list[str] | None = None,
+        **subset) -> xr.Dataset:
     """
     
     Args:
@@ -229,12 +232,13 @@ def load_config_xval_test_set(
             configs are not used, and 'sqrt' or 'log' otherwise.
         exclude_kword (str | None): Optional keywords to exclude, referring to configurations. E.g., 'translog' to
             exclude all models with 'translog' configuration.
+        **subset: xr.Dataset-style 'sel' arguments to select subset of predictions. For example `time='2009'`.
 
     Returns:
         A xarray.Dataset with all configurations merged into dimensions.
     """
     return XvalResultCollection(
-        path=path, nonbool_kwords=nonbool_kwords, exclude_kword=exclude_kword).get_expanded_xval().compute()
+        path=path, nonbool_kwords=nonbool_kwords, exclude_kword=exclude_kword, **subset).get_expanded_xval().compute()
 
 
 def sources_to_folds(sources: int | list[int]) -> list[int]:
