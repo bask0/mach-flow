@@ -55,10 +55,10 @@ data:
     - "2011-12-31"
     test_date_slice:
     - "2012-01-01"
-    - "2023-04-30"
+    - "2023-12-31"
     predict_date_slice:
     - "1961-01-01"
-    - "2023-04-30"
+    - "2023-12-31"
     norm_features: true
     norm_stat_features: true
     norm_targets: true
