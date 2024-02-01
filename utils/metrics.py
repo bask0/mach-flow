@@ -50,6 +50,30 @@ def _mse(
     return ((mod - obs)**2).mean(dim=dim).compute()
 
 
+def _bias2(
+        obs: xr.DataArray,
+        mod: xr.DataArray,
+        dim: str | Iterable[str] | None) -> xr.DataArray:
+
+    return _bias(obs=obs, mod=mod, dim=dim) ** 2
+
+
+def _varerr(
+        obs: xr.DataArray,
+        mod: xr.DataArray,
+        dim: str | Iterable[str] | None) -> xr.DataArray:
+
+    return (mod.std(dim=dim) - obs.std(dim=dim)) ** 2
+
+
+def _phaseerr(
+        obs: xr.DataArray,
+        mod: xr.DataArray,
+        dim: str | Iterable[str] | None) -> xr.DataArray:
+
+    return (1.0 - _r(obs=obs, mod=mod, dim=dim)) * 2.0 * mod.std(dim=dim) * obs.std(dim=dim)
+
+
 def _rmse(
         obs: xr.DataArray,
         mod: xr.DataArray,
@@ -75,6 +99,8 @@ def _nse(
     bottom = ((obs - obs.mean(dim=dim, skipna=True))**2).sum(dim=dim, skipna=True)
 
     nse = 1 - top / bottom
+
+    nse = nse.where(mod.notnull().any(dim), np.nan)
 
     return nse.compute()
 
@@ -152,11 +178,6 @@ def _get_xflow_bias(
     obs = obs.transpose(..., dim)
     mod = mod.transpose(..., dim)
 
-    # if (a := obs.shape) != (b := mod.shape):
-    #     raise ValueError(
-    #         f'`obs` and `mod` must have same shape, but they are {a} and {b}.'
-    #     )
-
     obs_da, mod_da = common_mask(obs=obs, mod=mod, dim=dim, drop_empty=True)
 
     obs_s = _get_sorted_fraction(x=obs_da.values, fraction=fraction, direction=direction)
@@ -180,33 +201,42 @@ def _get_xflow_bias(
 def _flv(
         obs: xr.DataArray,
         mod: xr.DataArray,
-        dim: str | Iterable[str] | None) -> xr.DataArray:
+        dim: str) -> xr.DataArray:
 
     if not isinstance(dim, str):
         raise ValueError(
             '`flv` not implemented for more than on dimension.'
         )
 
-    return _get_xflow_bias(obs=obs, mod=mod, dim=dim, fraction=0.3, direction='low').compute()
+    flv = _get_xflow_bias(obs=obs, mod=mod, dim=dim, fraction=0.3, direction='low').compute()
+    flv = flv.where(mod.notnull().any(dim), np.nan)
+
+    return flv
 
 
 def _fhv(
         obs: xr.DataArray,
         mod: xr.DataArray,
-        dim: str | Iterable[str] | None) -> xr.DataArray:
+        dim: str) -> xr.DataArray:
 
     if not isinstance(dim, str):
         raise ValueError(
             '`fhv` not implemented for more than on dimension.'
         )
 
-    return _get_xflow_bias(obs=obs, mod=mod, dim=dim, fraction=0.02, direction='high').compute()
+    fhv = _get_xflow_bias(obs=obs, mod=mod, dim=dim, fraction=0.02, direction='high').compute()
+    fhv = fhv.where(mod.notnull().any(dim), np.nan)
+
+    return fhv
 
 
 METRIC_MAPPING = dict(
     bias={'func': _bias, 'name': 'Bias', 'direction': 'none'},
     absbias={'func': _absbias, 'name': 'Absolute bias', 'direction': 'min'},
     mse={'func': _mse, 'name': 'Mean squared error', 'direction': 'min'},
+    bias2={'func': _bias2, 'name': 'Squared bias', 'direction': 'min'},
+    varerr={'func': _varerr, 'name': 'Variance error', 'direction': 'min'},
+    phaseerr={'func': _phaseerr, 'name': 'Phase error', 'direction': 'min'},
     rmse={'func': _rmse, 'name': 'Root mean squared error', 'direction': 'min'},
     nse={'func': _nse, 'name': 'Modeling efficiency', 'direction': 'max'},
     nnse={'func': _nnse, 'name': 'Normalized modeling efficiency', 'direction': 'max'},
@@ -226,6 +256,9 @@ def compute_metrics(
 
     if metrics == 'all':
         metrics = list(METRIC_MAPPING.keys())
+
+    if dim is None:
+        dim = [str(dim) for dim in mod.dims if dim in obs.dims]
 
     metrics = [metrics] if isinstance(metrics, str) else metrics
 
@@ -247,9 +280,12 @@ def compute_metrics(
         func = METRIC_MAPPING[metric]['func']
         name = METRIC_MAPPING[metric]['name']
         direction = METRIC_MAPPING[metric]['direction']
+
         da = func(obs=obs_da, mod=mod_da, dim=dim)
+
         da.attrs['long_name'] = name
         da.attrs['direction'] = direction
+
         ds[metric] = da
 
     return ds
