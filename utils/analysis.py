@@ -20,7 +20,6 @@ OPTUNA_PLOTS_TUNING = [
 ]
 
 OPTUNA_PLOTS_XVAL = [
-    'plot_intermediate_values',
     'plot_timeline',
 ]
 
@@ -62,14 +61,15 @@ def study_summary(study_path: str, study_name: str, is_xval: bool = False):
 def get_cdf(da: xr.DataArray) -> tuple[np.ndarray, np.ndarray, float]:
     da = da.load()
     da = da.where(da.notnull(), drop=True)
-    count, bins = np.histogram(da, bins=len(da))
-    bins = (bins[:-1] + bins[1:]) / 2
+    bins = list(sorted(da.values)) + [np.inf]
+    count, bins = np.histogram(da, bins=bins)
+    # bins = (bins[:-1] + bins[1:]) / 2
+    bins = bins[:-1]
     pdf = count / sum(count) 
     cdf = np.cumsum(pdf)
-    # xloc = np.interp([0.5], cdf, bins)
+    xloc = da.median().compute()
 
-    #return bins, cdf, xloc.item()
-    return bins, cdf, da.median().item()
+    return bins, cdf, xloc.item()
 
 
 def plot_cdf(
@@ -242,7 +242,7 @@ def xval_station_metrics(
     mets = xr.concat(mets, dim='run')
     mets = mets.assign_coords(run=names)
 
-    return mets
+    return mets.compute()
 
 
 class ModelColors(object):
