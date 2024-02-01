@@ -15,64 +15,75 @@ obs = get_shapefile(source='obs')
 prevah = get_shapefile(source='prevah')
 
 
-fig, ax = plt.subplots(figsize=(8, 5))
+fig, axes = plt.subplots(1, 2, figsize=(7, 3))
 
 ax = obs[obs.is_train].plot(
-    ax=ax,
+    ax=axes[0],
     column='Shape_Area',
-    legend=True,
+    legend=False,
     edgecolor='0.9',
-    lw=0.5,
+    cmap='RdPu_r',
+    lw=0.3,
     alpha=1.0,
+    vmin=0,
     vmax=500,
-    legend_kwds={
-        'label': 'Catchment area (km$^2$)',
-        'orientation': 'horizontal',
-        'aspect': 30,
-        'shrink': 0.7,
-        'pad': 0.01
-    }
+    # legend_kwds={
+    #     'label': 'Catchment area (km$^2$)',
+    #     'orientation': 'horizontal',
+    #     'aspect': 30,
+    #     'shrink': 0.7,
+    #     'pad': 0.01
+    # }
 )
-
-obs.plot(
-    ax=ax,
-    facecolor='0.7',
-    edgecolor='0.9',
-    lw=0.5,
-    zorder=-1
-)
-
-ax.axis('off')
-ax.tick_params(left=False, labelleft=False, bottom=False, labelbottom=False)
-ax.margins(0)
-ax.set_title('Observational catchments with low human impact')
-
-savefig(fig, PLOT_PATH / 'training_catchments.png')
-
-
-fig, ax = plt.subplots(figsize=(8, 5))
 
 ax = prevah.plot(
     ax=ax,
-    column='Shape_Area',
     legend=True,
-    facecolor='tab:blue',
-    edgecolor='0.9',
-    lw=0.5,
-    alpha=1.0,
-    vmax=500,
-    legend_kwds={
-        'label': 'Catchment area (km$^2$)',
-        'orientation': 'horizontal',
-        'aspect': 30,
-        'shrink': 0.7,
-        'pad': 0.01
-    }
+    facecolor='0.7',
+    edgecolor='none',
+    lw=0.0,
+    zorder=-1
 )
 
-ax.axis('off')
-ax.tick_params(left=False, labelleft=False, bottom=False, labelbottom=False)
-ax.margins(0)
-ax.set_title('PREVAH catchments')
 
-savefig(fig, PLOT_PATH / 'prevah_catchments.png')
+ax = prevah.plot(
+    ax=axes[1],
+    column='Shape_Area',
+    legend=False,
+    facecolor='tab:blue',
+    edgecolor='0.9',
+    cmap='RdPu_r',
+    lw=0.3,
+    alpha=1.0,
+    vmin=0,
+    vmax=500,
+    # legend_kwds={
+    #     'label': 'Catchment area (km$^2$)',
+    #     'orientation': 'horizontal',
+    #     'aspect': 30,
+    #     'shrink': 0.7,
+    #     'pad': 0.01
+    # }
+)
+
+for label, ax in zip(['a)', 'b)'], axes):
+    ax.axis('off')
+    ax.tick_params(left=False, labelleft=False, bottom=False, labelbottom=False)
+    ax.margins(0)
+    ax.text(0.12, 0.72, label, ha='left', va='top', transform=ax.transAxes)
+
+cax = fig.add_axes((0.42, 0.73, 0.12, 0.02))
+sm = plt.cm.ScalarMappable(cmap='RdPu_r', norm=plt.Normalize(vmin=0, vmax=500))
+sm._A = []
+cbar = fig.colorbar(
+    sm,
+    cax=cax,
+    label='',
+    orientation='horizontal',
+    aspect=30,
+    shrink=0.7,
+    pad=0.01
+)
+cbar.ax.set_title('Catchment area (km$^2$)', size=9)
+
+savefig(fig, PLOT_PATH / 'catchments.png', tight=True)
