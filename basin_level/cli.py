@@ -110,7 +110,7 @@ if __name__ == '__main__':
 
     pruner = optuna.pruners.HyperbandPruner(
         min_resource=10,
-        reduction_factor=2
+        reduction_factor=3
     )
     sampler = optuna.samplers.TPESampler(
         consider_prior=False,
