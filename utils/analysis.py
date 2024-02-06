@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
 
+from dataset.machflowdata import MachFlowDataModule
 from utils.metrics import compute_metrics
 from utils.data import load_xval_test_set
 
@@ -382,6 +383,7 @@ def plot_xval_cdf(
         ref_name: str | None = 'Qmm_prevah',
         save_path: str | None = None,
         subset: dict = {},
+        time_slices: list[str] | None = None,
         **kwargs) -> None:
 
     if save_path is None:
@@ -391,6 +393,13 @@ def plot_xval_cdf(
 
     ds = load_xval_test_set(xval_dir=xval_dir)
     ds = ds.sel(**subset)
+
+    if time_slices is not None:
+        ds = MachFlowDataModule.mask_time_slices(
+            mask=ds[[obs_name, mod_name, ref_name]],
+            tranges=time_slices,
+            mask_is_ds=True)
+
     ds = ds.sel(tau=0.5)
 
     mask = (ds[mod_name].notnull() & ds[ref_name].notnull()).compute()
