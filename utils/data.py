@@ -282,7 +282,12 @@ def load_xval(xval_dir: str | os.PathLike, sources: int | list[int] | None = Non
 
     """
 
-    paths = sorted(glob(os.path.join(xval_dir, 'fold_*/preds.zarr')))
+    pattern = os.path.join(xval_dir, 'fold_*/preds.zarr')
+    paths = sorted(glob(pattern))
+    if len(paths) == 0:
+        raise FileNotFoundError(
+            f'no files found with pattern: `{pattern}`'
+        )
     ds = xr.open_zarr(paths[0])
     mod_vars = [var for var in list(ds.data_vars) if var.endswith('_mod')]
     folds = sources_to_folds(sources)
