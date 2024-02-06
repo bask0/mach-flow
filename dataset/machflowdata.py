@@ -50,7 +50,7 @@ class MachFlowData(Dataset):
         self.check_vars_in_ds(ds=ds, variables=features + targets)
         self.features = features
         self.targets = targets
-        self.ds = self.add_static_vars(ds=ds, variables=self.features)
+        self.ds = ds # = self.add_static_vars(ds=ds, variables=self.features)
         self.stat_features = [] if stat_features is None else stat_features
         self.check_vars_in_ds(ds=ds, variables=self.stat_features)
 
@@ -220,10 +220,10 @@ class MachFlowDataModule(pl.LightningDataModule):
             num_cv_folds: int = 8,
             fold_nr: int = 0,
             use_additional_basins_as_training: bool = False,
-            train_date_slice: list[str | None] = [None, None],
-            valid_date_slice: list[str | None] = [None, None],
-            test_date_slice: list[str | None] = [None, None],
-            predict_date_slice: list[str | None] = [None, None],
+            train_tranges: list[str] | None = None,
+            valid_tranges: list[str] | None = None,
+            test_tranges: list[str] | None = None,
+            predict_tslice: list[str | None] = [None, None],
             norm_features: bool = True,
             norm_stat_features: bool = True,
             norm_targets: bool = False,
@@ -250,8 +250,10 @@ class MachFlowDataModule(pl.LightningDataModule):
             fold_nr (int): The fold to use, a value in the range [0, num_cv_folds). Defaults to 0.
             use_additional_basins_as_training (bool): whether to use additional basins (such strongly affected by
                 humans) for training. Default is False.
-            [train/valid/test/predict]_date_slice: (slice): Slice to subset the respective set in time. Defaults 
-                to no subsetting.
+            [train/valid/test]_tranges: (list[str]): List of comma-separated slices to subset the respective
+                set in time. For example ['2000,2001', '2010-01-01,2011-10'] to use 2000-01-01 up to 2001-12-31 and
+                '2010-01-01' up to '2011-10-31'. Must be passed, if None (default), error is raised.
+            predict_tslice: slice to define which period to predict after training, e.g., ['1970', '2020'].
             norm_features (bool): If True, dynamic input features are noramalized. Defaults to True.
             norm_stat_features (bool): If True, static input features are noramalized. Defaults to True.
             norm_targets (bool): If True, targets are standardized (by division). Defaults to False.
@@ -273,10 +275,10 @@ class MachFlowDataModule(pl.LightningDataModule):
         self.drop_all_nan_stations = drop_all_nan_stations
         self.num_cv_folds = num_cv_folds
         self.fold_nr = fold_nr
-        self.train_date_slice = slice(*train_date_slice)
-        self.valid_date_slice = slice(*valid_date_slice)
-        self.test_date_slice = slice(*test_date_slice)
-        self.predict_date_slice = slice(*predict_date_slice)
+        self.train_tranges = train_tranges
+        self.valid_tranges = valid_tranges
+        self.test_tranges = test_tranges
+        self.predict_tslice = slice(*predict_tslice)
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.seed = seed
@@ -286,13 +288,15 @@ class MachFlowDataModule(pl.LightningDataModule):
 
         # Drop all stations with all-NaN targets.
         if drop_all_nan_stations:
+            # Mask True=valid.
             mask = self.ds[self.targets].to_array('variable').notnull().any('variable').compute()
-            train_mask = mask.sel(time=self.train_date_slice).any('time').compute()
-            valid_mask = mask.sel(time=self.valid_date_slice).any('time').compute()
-            test_mask = mask.sel(time=self.valid_date_slice).any('time').compute()
-            mask = train_mask & valid_mask & test_mask
+            train_mask = self.mask_all_nan_basins(mask=mask, tranges=self.train_tranges)
+            valid_mask = self.mask_all_nan_basins(mask=mask, tranges=self.valid_tranges)
+            test_mask = self.mask_all_nan_basins(mask=mask, tranges=self.test_tranges)
 
-            stations = mask.station.values[mask]
+            station_mask = train_mask & valid_mask & test_mask
+
+            stations = mask.station.values[station_mask]
         else:
             stations = self.ds.station.values
 
@@ -312,7 +316,6 @@ class MachFlowDataModule(pl.LightningDataModule):
 
         # Data normalization.
         train_data = self.get_dataset('train').ds
-
 
         if norm_features:
             self.norm_args_features = Normalize.make_kwargs(
@@ -351,37 +354,62 @@ class MachFlowDataModule(pl.LightningDataModule):
         Returns:
             Dataset: A MachFlowData instance.
         """
+
         if mode == 'train':
             window_size = self.train_window_size
             window_min_count = self.window_min_count
             num_samples_per_epoch = self.train_num_samples_per_epoch
             basins = self.train_basins
-            time_sel = self.train_date_slice
+            tranges = self.train_tranges
         elif mode == 'val':
             window_size = -1
             window_min_count = self.window_min_count
             num_samples_per_epoch = 1
             basins = self.val_basins
-            time_sel = self.valid_date_slice
+            tranges = self.valid_tranges
         elif mode == 'test':
             window_size = -1
             window_min_count = self.window_min_count
             num_samples_per_epoch = 1
             basins = self.test_basins
-            time_sel = self.test_date_slice
+            tranges = self.test_tranges
         elif mode == 'predict':
             window_size = -1
             window_min_count = -1
             num_samples_per_epoch = 1
             basins = self.predict_basins
-            time_sel = self.predict_date_slice
+            tranges = None
         else:
             raise ValueError(
                 f'mode \'{mode}\' not valid, must be one of \'train\', \'val\', \'test\', or \'predict\'.'
             )
 
+        ds = self.ds.sel(station=basins)
+
+        if tranges is None:
+            ds = ds.sel(time=self.predict_tslice).compute()
+        else:
+            mask = xr.full_like(ds[self.targets[0]], True, dtype=bool)
+            for target in self.targets:
+                tmask = self.mask_time_slices(mask, tranges)
+
+                ds[target] = ds[target].where(tmask)
+
+            # Cut dataset for validation and test as we set values outside of period to NaN, but they are still in 
+            # the dataset. We don't want to run validation and test on the full time range.
+            if mode in ['val', 'test']:
+                mask_where = np.argwhere(tmask.any('station').compute().values)
+                cut_start_time = tmask.time[
+                        max(mask_where[0] - self.warmup_size, 0)
+                    ].dt.strftime('').item()
+                cut_end_time = tmask.time[
+                        mask_where[-1]
+                    ].dt.strftime('').item()
+
+                ds = ds.sel(time=slice(cut_start_time, cut_end_time))
+
         dataset = MachFlowData(
-            ds=self.ds.sel(station=basins, time=time_sel),
+            ds=ds.compute(),
             features=self.features,
             targets=self.targets,
             stat_features=self.stat_features,
@@ -521,6 +549,76 @@ class MachFlowDataModule(pl.LightningDataModule):
 
 
         return train_basins, valid_basins, test_basins
+
+    @staticmethod
+    def decode_time_string(x: list[str]) -> list[slice]:
+        """Decode time slice strings in form ['2000,2001', '2010-01-01,2011-10'] to list of slices."""
+
+        if not isinstance(x, list):
+            raise TypeError(
+                f'`x` must be `None` or a `list`, is `{type(x).__name__}`.'
+            )
+
+        if len(x) == 0:
+            raise ValueError(
+                '`x` must not be empty.'
+            )
+
+        time_slices = []
+        for el in x:
+            if not isinstance(el, str):
+                raise ValueError(
+                    f'element \'{el}\' must be of type `str`, is `{type(el).__name__}`.'
+                )
+
+            if ',' not in el:
+                raise ValueError(
+                    'each time item must be a comma separated pair of start time, end time, e.g., \'2001,2003-05-01\', '
+                    f'but no comma found in element \'{el}\'.'
+                )
+
+            if ' ' in el:
+                raise ValueError(
+                    'each time item must be a comma separated pair of start time, end time, e.g., \'2001,2003-05-01\', '
+                    f'with no whitespaces, but whitespace found in element \'{el}\'.'
+                )
+
+            start_date, end_date = el.split(',')
+
+            try:
+                xr.cftime_range(start_date, end_date)
+
+            except Exception as _:
+                raise RuntimeError(
+                    f'Could not parse element \'{el}\' to time stamps. Infered time start was \'{start_date}\' and '
+                    f'time end was \'{end_date}\'.'
+                )
+            
+            time_slices.append(slice(start_date, end_date))
+
+        return time_slices
+
+    def mask_time_slices(self, mask: xr.DataArray, tranges: list[str]) -> xr.DataArray:
+        """Update mask with time_slices; values outside of slices get set to False."""
+
+        time_slices = self.decode_time_string(x=tranges)
+
+        time_mask = xr.full_like(mask, False)
+
+        for time_slice in time_slices:
+            time_mask.loc[{'time': time_slice}] = True
+
+        mask = mask & time_mask
+
+        return mask
+
+    def mask_all_nan_basins(self, mask: xr.DataArray, tranges: list[str] | None) -> xr.DataArray:
+        if tranges is None:
+            raise ValueError('[set]_tranges must not be None.')
+
+        return self.mask_time_slices(
+                mask=mask.copy(),
+                tranges=tranges).any('time').compute()
 
     @property
     def num_dfeatures(self) -> int:

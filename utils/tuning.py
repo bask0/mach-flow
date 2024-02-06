@@ -412,10 +412,10 @@ class Tuner(object):
     @staticmethod
     def get_test_slice(cli: 'MyLightningCLI') -> slice:
         try:
-            test_range = cli.config['data']['init_args']['test_date_slice']
+            test_range = cli.config['data']['init_args']['test_tranges']
         except KeyError as e:
             raise KeyError(
-                'could not infer test set time range from config at `data.init_args.test_date_slice`.'
+                'could not infer test set time range from config at `data.init_args.test_tranges`.'
             )
 
         return slice(*test_range)    
