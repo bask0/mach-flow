@@ -42,3 +42,6 @@ for c in {""," -c basin_level/staticall.yaml"," -c basin_level/staticdred.yaml"}
     echo "Running: ${CMD}"
     eval $CMD
 done
+
+COMMAND="python model_summary.py"
+eval $CMD
