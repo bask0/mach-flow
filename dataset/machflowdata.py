@@ -6,9 +6,12 @@ import numpy as np
 from dataclasses import fields, is_dataclass
 import os
 import math
+from typing import TypeVar
 
 from utils.torch_modules import Normalize, RobustStandardize
 from utils.types import SamplePattern, SampleCoords
+
+xrDatasetOrDataArray = TypeVar('xrDatasetOrDataArray', xr.DataArray, xr.Dataset)
 
 
 def collate_dataclass(batch):
@@ -598,21 +601,32 @@ class MachFlowDataModule(pl.LightningDataModule):
 
         return time_slices
 
-    def mask_time_slices(self, mask: xr.DataArray, tranges: list[str]) -> xr.DataArray:
-        """Update mask with time_slices; values outside of slices get set to False."""
+    @staticmethod
+    def mask_time_slices(
+            mask: xrDatasetOrDataArray,
+            tranges: list[str],
+            mask_is_ds: bool = False) -> xrDatasetOrDataArray:
+        """Update mask with time_slices; values outside of slices get set to False.
 
-        time_slices = self.decode_time_string(x=tranges)
+        Set `mask_is_ds` to True to directly mask the input instead of using it as additional mask.
+
+        """
+
+        time_slices = MachFlowDataModule.decode_time_string(x=tranges)
 
         time_mask = xr.full_like(mask, False)
 
         for time_slice in time_slices:
             time_mask.loc[{'time': time_slice}] = True
 
-        mask = mask & time_mask
+        if not mask_is_ds:
+            mask = mask & time_mask
+        else:
+            mask = mask.where(time_mask)
 
         return mask
 
-    def mask_all_nan_basins(self, mask: xr.DataArray, tranges: list[str] | None) -> xr.DataArray:
+    def mask_all_nan_basins(self, mask: xr.DataArray, tranges: list[str] | None) -> xr.DataArray | xr.Dataset:
         if tranges is None:
             raise ValueError('[set]_tranges must not be None.')
 
