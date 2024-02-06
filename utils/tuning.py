@@ -350,18 +350,18 @@ class Tuner(object):
                 )
             return
 
-        if self.is_dev:
-            logger.warning('Setting `n_trials=2` for dev run.')
-            n_trials = 2
-
         if os.path.exists(self.exp_path_tune):
             if self.overwrite:
                 shutil.rmtree(self.exp_path_tune)
             else:
                 warn(f'path exists and overwrite is False, skip tuning.\n`{self.exp_path_tune}`')
-                exit(0)
+                return
 
         os.makedirs(self.exp_path_tune)
+
+        if self.is_dev:
+            logger.warning('Setting `n_trials=2` for dev run.')
+            n_trials = 2
 
         study = self.new_study(db_path=self.db_path_tune, is_tune=True)
 
@@ -374,7 +374,7 @@ class Tuner(object):
                 shutil.rmtree(self.exp_path_xval)
             else:
                 warn(f'path exists and overwrite is False, skip xval.\n`{self.exp_path_xval}`')
-                exit(0)
+                return
 
         os.makedirs(self.exp_path_xval)
 
@@ -410,7 +410,7 @@ class Tuner(object):
         study_summary(study_path=self.db_path_xval, study_name=self.model, is_xval=True)
 
     @staticmethod
-    def get_test_slice(cli: 'MyLightningCLI') -> slice:
+    def get_test_slice(cli: 'MyLightningCLI') -> list[str]:
         try:
             test_range = cli.config['data']['init_args']['test_tranges']
         except KeyError as e:
@@ -418,7 +418,7 @@ class Tuner(object):
                 'could not infer test set time range from config at `data.init_args.test_tranges`.'
             )
 
-        return slice(*test_range)    
+        return test_range   
 
     def plot_xval_cdf(self) -> None:
         for target in self.targets:
@@ -428,5 +428,5 @@ class Tuner(object):
                 mod_name=f'{target}_mod',
                 ref_name=f'{target}_prevah',
                 save_path=os.path.join(self.exp_path_xval, f'xval_perf_{target}.png'),
-                subset={'time': self.test_time_slice}
+                time_slices=self.test_time_slice,
             )
