@@ -7,6 +7,8 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
+from dataset.machflowdata import MachFlowDataModule
+
 
 def read_rds(path: str | os.PathLike) -> pd.DataFrame:
     return pyreadr.read_r(path)[None]
@@ -25,13 +27,17 @@ def sel_cv_set(ds: xr.Dataset, cv_sets: int | list[int]) -> xr.Dataset:
     return ds.sel(station=ds.cv_set.isin(cv_sets))
 
 
-def load_xval_test_set(xval_dir: str | os.PathLike, num_expected_folds : int = 8, **subset) -> xr.Dataset:
+def load_xval_test_set(
+        xval_dir: str | os.PathLike,
+        num_expected_folds : int = 8,
+        time_slices: list[str] | None = None,
+        **subset) -> xr.Dataset:
 
     paths = glob(os.path.join(xval_dir, 'fold_*/preds.zarr'))
 
     if (n := len(paths))!= num_expected_folds:
         raise ValueError(
-            f'number of files found ({n}) not equal \'num_expected_folds\' (num_expected_folds) in \'{xval_dir}\'.'
+            f'number of files found ({n}) not equal \'num_expected_folds\' ({num_expected_folds}) in \'{xval_dir}\'.'
         )
 
     ds = xr.open_mfdataset(
@@ -39,9 +45,15 @@ def load_xval_test_set(xval_dir: str | os.PathLike, num_expected_folds : int = 8
         engine='zarr',
         concat_dim='station',
         combine='nested', 
-        preprocess=lambda x: sel_cv_set(ds=x, cv_sets=2)).sel(**subset)
+        preprocess=lambda x: sel_cv_set(ds=x, cv_sets=2))
 
-    return ds
+    if time_slices is not None:
+        ds = MachFlowDataModule.mask_time_slices(
+                        mask=ds,
+                        tranges=time_slices,
+                        mask_is_ds=True)
+
+    return ds.sel(**subset).compute()
 
 
 @dataclass
@@ -99,9 +111,11 @@ class XvalResultCollection():
             path: os.PathLike | str,
             nonbool_kwords: list[str] | None = None,
             exclude_kword: list[str] | None = None,
+            time_slices: list[str] | None = None,
             **subset) -> None:
         self.nonbool_kwords = nonbool_kwords
         self.exclude_kword = exclude_kword
+        self.time_slices = time_slices
         self.subset = subset
         self.xval_results = self.load_all_xval_test_sets(path)
         self.unique_configs = self.get_unique_configs()
@@ -201,7 +215,7 @@ class XvalResultCollection():
                 if skip:
                     continue
 
-            xval_test_ds = load_xval_test_set(xval_path, **self.subset)
+            xval_test_ds = load_xval_test_set(xval_path, time_slices=self.time_slices, **self.subset)
 
             xval_res = XvalResult(model=model, config=conf, xrdata=xval_test_ds, path=xval_path)
 
@@ -221,6 +235,7 @@ def load_config_xval_test_set(
         path: os.PathLike | str,
         nonbool_kwords: list[str] | None = None,
         exclude_kword: list[str] | None = None,
+        time_slices: list[str] | None = None,
         **subset) -> xr.Dataset:
     """
     
@@ -232,16 +247,22 @@ def load_config_xval_test_set(
             configs are not used, and 'sqrt' or 'log' otherwise.
         exclude_kword (str | None): Optional keywords to exclude, referring to configurations. E.g., 'translog' to
             exclude all models with 'translog' configuration.
+        time_slices (list[str]): List of comma-separated slices to subset the respective set in time, e.g.,
+            ['2001,2003', '2005-01-01,'2010-06'].
         **subset: xr.Dataset-style 'sel' arguments to select subset of predictions. For example `time='2009'`.
 
     Returns:
         A xarray.Dataset with all configurations merged into dimensions.
     """
     return XvalResultCollection(
-        path=path, nonbool_kwords=nonbool_kwords, exclude_kword=exclude_kword, **subset).get_expanded_xval().compute()
+        path=path,
+        nonbool_kwords=nonbool_kwords,
+        exclude_kword=exclude_kword,
+        time_slices=time_slices,
+        **subset).get_expanded_xval().compute()
 
 
-def sources_to_folds(sources: int | list[int]) -> list[int]:
+def sources_to_folds(sources: int | list[int]) -> list[int] | None:
     """Select basin by source:
 
     sources:

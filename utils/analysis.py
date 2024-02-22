@@ -211,6 +211,7 @@ def xval_station_metrics(
         target: str = 'Qmm',
         benchmark: str | None = 'prevah',
         metrics: list[str] = ['bias', 'r', 'nse'],
+        time_slices: list[str] | None = None,
         **subset) -> xr.Dataset:
     pattern = os.path.join(dir, '*', '*', 'xval')
     paths = glob(pattern)
@@ -223,6 +224,16 @@ def xval_station_metrics(
         name = f'{name_[-2]}-{name_[-3]}' 
         '-'.join(path.split('/')[-3:-1])
         ds = load_xval_test_set(xval_dir=path).sel(**subset)
+
+        if time_slices is not None:
+            if benchmark is None:
+                vars = [target, target + '_mod']
+            else:
+                vars = [target, target + '_mod', f'{target}_{benchmark}']
+            ds = MachFlowDataModule.mask_time_slices(
+                mask=ds[vars],
+                tranges=time_slices,
+                mask_is_ds=True)
 
         obs = ds[target]
         mod = ds[target + '_mod']
@@ -263,10 +274,17 @@ def plot_model_comp(
         ref: str = 'prevah',
         save_path: str | None = None,
         title_postfix: str = '',
+        time_slices: list[str] | None = None,
         **subset
     ):
 
-    ds = xval_station_metrics(dir=dir, target=target, benchmark=ref, metrics=['r', 'nse', 'absbias', 'kge'], **subset)
+    ds = xval_station_metrics(
+        dir=dir,
+        target=target,
+        benchmark=ref,
+        metrics=['r', 'nse', 'absbias', 'kge'],
+        time_slices=time_slices,
+        **subset)
 
     metrics = list(ds.data_vars)
     num_metrics = len(metrics)
