@@ -48,15 +48,15 @@ data:
     fold_nr: 0
     use_additional_basins_as_training: false
     train_tranges:
-    - "1961,1991"
+    - "1961,1992"
     - "2002,2013"
     valid_tranges:
-    - "1992,1993"
+    - "1993,1994"
     - "2000,2001"
     - "2014,2015"
     - "2021,2023"
     test_tranges:
-    - "1994,1999"
+    - "1995,1999"
     - "2016,2020"
     predict_tslice:
     - "1961"
