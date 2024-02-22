@@ -11,12 +11,12 @@ from typing import Type, Callable, TypeVar, TYPE_CHECKING
 from models.base import LightningNet
 from utils.pl import cli_main, get_dummy_cli
 from utils.analysis import study_summary, plot_xval_cdf
+from utils.logging import get_logger
 
 if TYPE_CHECKING:
     from utils.pl import MyLightningCLI
 
-import logging
-logger = logging.getLogger('pytorch_lightning')
+logger = get_logger('tuning')
 
 
 class SearchSpaceMeta(type): 
@@ -248,7 +248,7 @@ class Tuner(object):
 
         cli = get_dummy_cli()
 
-        self.overwrite = cli.config['config']
+        self.overwrite = cli.config['overwrite']
         self.is_dev = cli.config['dev']
         self.skip_tuning = cli.config['skip_tuning']
         search_spaces = get_search_spaces()
@@ -350,14 +350,9 @@ class Tuner(object):
                 )
             return
 
-        if os.path.exists(self.exp_path_tune):
-            if self.overwrite:
-                shutil.rmtree(self.exp_path_tune)
-            else:
-                warn(f'path exists and overwrite is False, skip tuning.\n`{self.exp_path_tune}`')
-                return
-
-        os.makedirs(self.exp_path_tune)
+        skip = self.maybe_create_run_or_abort(self.exp_path_tune)
+        if skip:
+            return
 
         if self.is_dev:
             logger.warning('Setting `n_trials=2` for dev run.')
@@ -369,19 +364,30 @@ class Tuner(object):
         self.summarize_tuning()
 
     def xval(self) -> None:
-        if os.path.exists(self.exp_path_xval):
-            if self.overwrite:
-                shutil.rmtree(self.exp_path_xval)
-            else:
-                warn(f'path exists and overwrite is False, skip xval.\n`{self.exp_path_xval}`')
-                return
 
-        os.makedirs(self.exp_path_xval)
+        skip = self.maybe_create_run_or_abort(self.exp_path_xval)
+        if skip:
+            return
 
         study = self.new_study(db_path=self.db_path_xval, is_tune=False)
         study.optimize(self.get_objective(is_tune=False))
         self.plot_xval_cdf()
         self.summarize_xval()
+
+    def maybe_create_run_or_abort(self, path: str) -> bool:
+        if os.path.exists(path):
+            if self.overwrite:
+                logger.warning(f'removing existing run as overwrite=True: `{path}`')
+                shutil.rmtree(path)
+            else:
+                logger.warning(f'path exists and overwrite is False, skipping: `{path}`')
+                return True
+        else:
+            logger.warning(f'creating new run at: `{path}`')
+
+        os.makedirs(path)
+
+        return False
 
     @staticmethod
     def get_best_config_and_ckpt(study: optuna.Study) -> tuple[str, str]:
