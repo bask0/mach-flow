@@ -616,6 +616,11 @@ class MachFlowDataModule(pl.LightningDataModule):
 
         time_mask = xr.full_like(mask, False)
 
+        if isinstance(time_mask, xr.Dataset):
+            for var in time_mask.data_vars:
+                if 'time' not in time_mask[var].dims:
+                    time_mask = time_mask.drop_vars([var])
+
         for time_slice in time_slices:
             time_mask.loc[{'time': time_slice}] = True
 
