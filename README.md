@@ -1,72 +1,64 @@
-### Deep learning project seed
-Use this seed to start new deep learning / ML projects.
 
-- Built in setup.py
-- Built in requirements
-- Examples with MNIST
-- Badges
-- Bibtex
-
-#### Goals  
-The goal of this seed is to structure ML paper-code the same so that work can easily be extended and replicated.   
-
-### DELETE EVERYTHING ABOVE FOR YOUR PROJECT  
- 
 ---
 
 <div align="center">    
  
-# CH-RUN: A data-driven spatially contiguous runoff monitoring product for Switzerland   
+# CH-RUN: A data-driven spatially contiguous</br>runoff monitoring product for Switzerland   
 
 <!--Change batch name and link to paper -->
-[![Paper](https://img.shields.io/badge/HESS-in%20prep.-blue.svg)](https://www.hydrology-and-earth-system-sciences.net/)  
+[![Paper](https://img.shields.io/badge/HESS-in%20prep.-blue.svg)](https://www.hydrology-and-earth-system-sciences.net/)
+[![Project](https://img.shields.io/badge/MACHFlow-project-red.svg)](https://www.datascience.ch/projects/mach-flow)
 
+<figure>
+  <img src="./analysis/figures/fig08.png" alt="CH-RUN" style="width:70%">
+  <figcaption>Fig. 8 from Kraft et al. (in prep.): Spatially contiguous reconstruction of runoff from 1962 to 2023. The maps represent the yearly catchment-level ruoff quantiles relative to the reference period (1971 to 2000) empirical distribution. The bottom bars show the decadal deviation in mm y−1 of the national-
+level runoff relative to the reference period.</figcaption>
+</figure>
 
 </div>
  
 ## Description   
-What it does   
+
+<!--Change batch name and link to paper -->
+This repository contains the code for performing deep learning based reconstruction of runoff for Switzerland (Fig. 1).
+More details can be found in [this publication](https://www.hydrology-and-earth-system-sciences.net/).
+
+<figure>
+  <img src="./analysis/figures/fig01.png" alt="CH-RUN" style="width:70%">
+  <figcaption>Fig. 1 from Kraft et al. (in prep.): From sparse observations with low human impact to contiguous coverage. The 98 observational catchments highlighted in magenta were selected by domain experts and served as a base for training and evaluating the data-driven models. Those catchments are only marginally affected by anthropogenic factors and are of similar size as the target catchments for reconstruction (grey).</figcaption>
+</figure>
 
 ## How to run   
-First, install dependencies   
+First, make sure that you have conda installed. Then, install dependencies:
+
 ```bash
-# clone project   
-git clone https://github.com/YourGithubName/deep-learning-project-template
+# Clone the project.
+git clone https://github.com/bask0/mach-flow.git
 
-# install project   
-cd deep-learning-project-template 
-pip install -e .   
-pip install -r requirements.txt
- ```   
- Next, navigate to any file and run it.   
- ```bash
-# module folder
-cd project
-
-# run module (example: mnist as your main contribution)   
-python lit_classifier_main.py    
+# Install the project.
+# You may need to change this line `source $CONDA_PREFIX/etc/profile.d/mamba.sh` in `create_env.sh`).
+cd mach-flow
+bash create_env.sh
 ```
 
-## Imports
-This project is setup as a package which means you can now easily import any file into any other file like so:
-```python
-from project.datasets.mnist import mnist
-from project.lit_classifier_main import LitClassifier
-from lightning.pytorch import Trainer
+Next, run the model tuning and cross validation. GPU should automatically be detected if available. This takes a while.   
+ 
+```bash
+# Run LSTM tuning and cross validation.
+bash basin_level/run_experiment.sh -m LSTM
 
-# model
-model = LitClassifier()
-
-# data
-train, val, test = mnist()
-
-# train
-trainer = Trainer()
-trainer.fit(model, train, val)
-
-# test using the best model!
-trainer.test(test_dataloaders=test)
+# Run TCN tuning and cross validation.
+bash basin_level/run_experiment.sh -m TCN
 ```
+
+Create figures:
+
+```bash
+# Create figures.  
+bash create_plots.sh
+```
+
+
 
 ### Citation   
 ```
