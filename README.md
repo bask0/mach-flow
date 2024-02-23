@@ -11,7 +11,7 @@
 
 <figure>
   <img src="./analysis/figures/fig08.png" alt="CH-RUN" style="width:70%">
-  <figcaption>Fig. 8 from Kraft et al. (in prep.): Spatially contiguous reconstruction of runoff from 1962 to 2023. The maps represent the yearly catchment-level ruoff quantiles relative to the reference period (1971 to 2000) empirical distribution. The bottom bars show the decadal deviation in mm y−1 of the national-
+  <figcaption></br>Fig. 8 from Kraft et al. (in prep.): Spatially contiguous reconstruction of runoff from 1962 to 2023. The maps represent the yearly catchment-level ruoff quantiles relative to the reference period (1971 to 2000) empirical distribution. The bottom bars show the decadal deviation in mm y−1 of the national-
 level runoff relative to the reference period.</figcaption>
 </figure>
 
@@ -25,7 +25,7 @@ More details can be found in [this publication](https://www.hydrology-and-earth-
 
 <figure>
   <img src="./analysis/figures/fig01.png" alt="CH-RUN" style="width:70%">
-  <figcaption>Fig. 1 from Kraft et al. (in prep.): From sparse observations with low human impact to contiguous coverage. The 98 observational catchments highlighted in magenta were selected by domain experts and served as a base for training and evaluating the data-driven models. Those catchments are only marginally affected by anthropogenic factors and are of similar size as the target catchments for reconstruction (grey).</figcaption>
+  <figcaption></br>Fig. 1 from Kraft et al. (in prep.): From sparse observations with low human impact to contiguous coverage. The 98 observational catchments highlighted in magenta were selected by domain experts and served as a base for training and evaluating the data-driven models. Those catchments are only marginally affected by anthropogenic factors and are of similar size as the target catchments for reconstruction (grey).</figcaption>
 </figure>
 
 ## How to run   
