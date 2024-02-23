@@ -11,15 +11,15 @@ ENVNAME="machflow"
 # Go to base conda environment
 eval "$(conda shell.bash hook)"
 source $CONDA_PREFIX/etc/profile.d/mamba.sh
-mamba activate base \
+conda activate base \
     || { echo '>>> Activating base failed.'; exit 1; }
 
 # Remove environment if exists
-mamba remove --yes --name $ENVNAME --all \
+conda remove --yes --name $ENVNAME --all \
     || { echo '>>> Removing environment failed.'; exit 1; }
 
 # Create environment
-mamba create --yes --name $ENVNAME python=3.10 \
+conda create --yes --name $ENVNAME python=3.10 \
     pytorch torchvision torchaudio pytorch-cuda=12.1 pytorch-lightning \
     numpy scikit-learn optuna \
     pandas xarray dask netcdf4 zarr geopandas \
@@ -31,7 +31,7 @@ mamba create --yes --name $ENVNAME python=3.10 \
     || { echo '>>> Creating environment failed.'; exit 1; }
 
 # Activate environment
-mamba activate $ENVNAME \
+conda activate $ENVNAME \
     || { echo '>>> Activating environment failed.'; exit 1; }
 
 # Install pip packages
