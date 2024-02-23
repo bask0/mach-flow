@@ -23,10 +23,12 @@ level runoff relative to the reference period.</figcaption>
 This repository contains the code for performing deep learning based reconstruction of runoff for Switzerland (Fig. 1).
 More details can be found in [this publication](https://www.hydrology-and-earth-system-sciences.net/).
 
+<div align="center">
 <figure>
   <img src="./analysis/figures/fig01.png" alt="CH-RUN" style="width:70%">
   <figcaption></br>Fig. 1 from Kraft et al. (in prep.): From sparse observations with low human impact to contiguous coverage. The 98 observational catchments highlighted in magenta were selected by domain experts and served as a base for training and evaluating the data-driven models. Those catchments are only marginally affected by anthropogenic factors and are of similar size as the target catchments for reconstruction (grey).</figcaption>
 </figure>
+</div>
 
 ## How to run   
 First, make sure that you have conda installed. Then, install dependencies:
