@@ -8,7 +8,7 @@ from utils.shapefiles import get_shapefile
 
 load_default_mpl_config()
 
-PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/catchment_vis/')
+PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/figures/')
 
 
 obs, obs_point = get_shapefile(source='obs')
@@ -72,4 +72,4 @@ ax.legend(handles=legend_elements, loc='upper left',  bbox_to_anchor=(0, 1.02),
           frameon=False, fontsize=8)
 
 
-savefig(fig, PLOT_PATH / 'catchments.png', tight=True)
+savefig(fig, PLOT_PATH / 'fig01.png', tight=True)

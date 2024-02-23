@@ -11,7 +11,7 @@ from pathlib import Path
 from utils.data import read_rds
 from utils.plotting import load_default_mpl_config, savefig
 
-PLOT_PATH = Path('/home/basil/mach-flow/analysis/data_vis/')
+PLOT_PATH = Path('/home/basil/mach-flow/analysis/helper_figures/')
 
 load_default_mpl_config()
 
