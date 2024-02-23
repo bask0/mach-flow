@@ -11,6 +11,7 @@ from utils.metrics import compute_metrics
 load_default_mpl_config()
 
 PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/figures/')
+PLOT_PATH_ALT = Path('/mydata/machflow/basil/mach-flow/analysis/helper_figures/')
 runoff_vars = ['Qmm', 'Qmm_mod', 'Qmm_prevah']
 
 def merged_df(mod, prevah):
@@ -73,7 +74,7 @@ ax.set_xticklabels([])
 
 #ax.axis('off')
 
-fig.savefig('./catchment_timesplit.png', dpi=600, transparent=False, bbox_inches='tight', pad_inches=0)
+fig.savefig(PLOT_PATH_ALT / 'catchment_timesplit.png', dpi=600, transparent=False, bbox_inches='tight', pad_inches=0)
 
 catchments = {
     'CHFO-0181': 'Murg–Frauenfeld\nRain dominated',
