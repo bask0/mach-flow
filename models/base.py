@@ -1,5 +1,5 @@
 import lightning.pytorch as pl
-from lightning.pytorch.utilities.model_summary import ModelSummary
+from lightning.pytorch.utilities.model_summary.model_summary import ModelSummary
 import logging
 import torch
 from torch import Tensor
@@ -10,7 +10,7 @@ import abc
 
 from utils.loss_functions import RegressionLoss
 from utils.types import BatchPattern, ReturnPattern
-from utils.torch_modules import Normalize, EncodingModule, PadTau
+from utils.torch_modules import DataTansform, EncodingModule, PadTau, Transform, SeqZeroPad, TemporalCombine
 
 
 # Ignore anticipated PL warnings.
@@ -41,8 +41,8 @@ class LightningNet(pl.LightningModule):
     def __init__(
             self,
             criterion: str = 'L2',
-            log_transform: bool = False,
-            inference_taus: list[float] = [0.05, 0.25, 0.5, 0.75, 0.9],
+            sqrt_transform: bool = False,
+            inference_taus: list[float] = [0.05, 0.25, 0.5, 0.75, 0.95],
             norm_args_features: dict | None = None,
             norm_args_stat_features: dict | None = None,
             norm_args_targets: dict | None = None
@@ -51,7 +51,7 @@ class LightningNet(pl.LightningModule):
 
         Args:
             criterion: the criterion to use, defaults to L2.
-            log_transform: Whether to log-transform the predictions and targets before computing the loss.
+            sqrt_transform: Whether to sqrt-transform the predictions and targets before computing the loss.
                 Default is False.
             inference_taus: The tau values (probabilities) to evaluate in inference. Only applies for
                 distribution-aware criterions.
@@ -59,23 +59,23 @@ class LightningNet(pl.LightningModule):
 
         super().__init__()
 
-        self.loss_fn = RegressionLoss(criterion=criterion, log_transform=log_transform)
+        self.loss_fn = RegressionLoss(criterion=criterion, sqrt_transform=sqrt_transform)
 
         self.sample_tau = self.loss_fn.has_tau
-        self.inference_taus = inference_taus
+        self.inference_taus = inference_taus if self.sample_tau else [0.5]
 
         if norm_args_features is not None:
-            self.norm_features = Normalize(**norm_args_features)
+            self.norm_features = DataTansform(**norm_args_features)
         else:
             self.norm_features = torch.nn.Identity()
 
         if norm_args_stat_features is not None:
-            self.norm_stat_features = Normalize(**norm_args_stat_features)
+            self.norm_stat_features = DataTansform(**norm_args_stat_features)
         else:
             self.norm_stat_features = torch.nn.Identity()
 
         if norm_args_targets is not None:
-            self.norm_targets = Normalize(**norm_args_targets)
+            self.norm_targets = DataTansform(**norm_args_targets)
         else:
             self.norm_targets = torch.nn.Identity()
 
@@ -237,6 +237,14 @@ class LightningNet(pl.LightningModule):
 
     def on_train_start(self) -> None:
 
+        if self.logger is None:
+            raise AttributeError(
+                'self.logger is not set.'
+            )
+
+        if not hasattr(self.logger, 'log_dir') or (self.logger.log_dir is None):
+            raise KeyError('logger has no attribute \'log_dir\', or it is None.')
+
         os.makedirs(self.logger.log_dir, exist_ok=True)
         with open(os.path.join(self.logger.log_dir, 'model_summary.txt'), 'w') as f:
             f.write(self.summarize())
@@ -245,51 +253,93 @@ class LightningNet(pl.LightningModule):
 
 
 class TemporalNet(LightningNet, abc.ABC):
+
     def __init__(
             self,
             num_static_in: int,
             num_dynamic_in: int,
             num_outputs: int,
             model_dim: int = 8,
-            enc_layers: int = 1,
             enc_dropout: float = 0.0,
+            fusion_method: str = 'post_repeated',
             **kwargs) -> None:
 
         super().__init__(**kwargs)
 
-        # Static input encoding
+        self.fusion_method = fusion_method
+
+        # Input encoding
         # -------------------------------------------------
 
-        self.static_encoding = EncodingModule(
-            num_in=num_static_in,
-            num_enc=model_dim - 1,
-            num_layers=enc_layers,
-            dropout=enc_dropout,
-            activation=torch.nn.ReLU(),
-            activation_last=torch.nn.Sigmoid()
-        )
+        if self.fusion_method == 'pre_encoded':
 
-        # Dynamic input encoding
+            # Static input encoding
+            self.static_encoding = EncodingModule(
+                num_in=num_static_in,
+                num_enc=model_dim,
+                num_layers=2,
+                dropout=enc_dropout,
+                activation=torch.nn.ReLU(),
+                activation_last=torch.nn.Tanh()
+            )
+
+            # Dynamic input encoding
+            self.dynamic_encoding = EncodingModule(
+                num_in=num_dynamic_in,
+                num_enc=model_dim,
+                num_layers=2,
+                dropout=enc_dropout,
+                activation=torch.nn.Tanh(),
+                activation_last=torch.nn.Sigmoid()
+            )
+
+        elif self.fusion_method == 'pre_repeated':
+
+            self.pre_fusion_layer = TemporalCombine(
+                num_dynamic_in=num_dynamic_in,
+                num_static_in=num_static_in,
+                num_out=model_dim,
+                num_layers=2,
+                dropout=0.1,
+            )
+
+        elif self.fusion_method == 'post_repeated':
+
+            self.input_layer = torch.nn.Conv1d(
+                in_channels=num_dynamic_in,
+                out_channels=model_dim,
+                kernel_size=1
+            )
+
+        else:
+
+            raise self.fusion_method_not_found(self.fusion_method)
+
+        # Temporal layer
         # -------------------------------------------------
 
-        self.dynamic_encoding = EncodingModule(
-            num_in=num_dynamic_in,
-            num_enc=model_dim - 1,
-            num_layers=enc_layers,
-            dropout=enc_dropout,
-            activation=torch.nn.Tanh(),
-            activation_last=torch.nn.Tanh()
-        )
+        # >>>> Is defined in subclass.
 
         # Output
         # -------------------------------------------------
 
+        if self.fusion_method == 'post_repeated':
+            self.post_fusion_layer = TemporalCombine(
+                    num_dynamic_in=model_dim,
+                    num_static_in=num_static_in,
+                    num_out=model_dim,
+                    num_layers=2,
+                    dropout=0.1,
+                )
+
+        self.dropout1d = torch.nn.Dropout1d(enc_dropout)
+
         self.pad_tau = PadTau()
 
-        self.out_layer = torch.nn.Conv1d(
-            in_channels=model_dim + 1,
-            out_channels=num_outputs,
-            kernel_size=1
+        self.output_layer = torch.nn.Conv1d(
+                in_channels=model_dim + 1,
+                out_channels=num_outputs,
+                kernel_size=1
         )
 
         self.out_activation = torch.nn.Softplus()
@@ -299,6 +349,12 @@ class TemporalNet(LightningNet, abc.ABC):
     def temporal_forward(self, x: Tensor) -> Tensor:
         """Temporal layer forward pass, must be overridden in subclass.
 
+        Shapes:
+            x: (batch, channels, sequence).
+
+        Returns:
+            Tensor with same shape as input (batch, channels, sequence).
+
         Args:
             x: The input tensor of shape (batch, channels, sequence),
 
@@ -306,252 +362,149 @@ class TemporalNet(LightningNet, abc.ABC):
             A tensor of same shape as the input.
         """
 
-    def encode(self, x: Tensor, s: Tensor | None) -> Tensor:
-        """Encode dynamic and static features.
+    def temporal_pre_encoded(self, x: Tensor, s: Tensor | None, tau: float) -> Tensor:
+        """Temoral layer with encoding pre-fusion.
 
         Args:
             x: The dynamic inputs, shape (batch, dynamic_channels, sequence)
-            x: The static inputs, shape (batch, static_channels)
+            s: The static inputs, shape (batch, static_channels)
+            tau: The optional tau probability for expectile/quantile regression.
 
         Returns:
-            A tensor of combined dynamic and static features, shape (batch, encoding_dim, sequence).
+            A tensor of predicted values (batch, outputs, sequence).
+
         """
+
         # Dynamic encoding: (B, D, S) -> (B, E, S)
-        x_enc = self.dynamic_encoding(x)
+        enc = self.dynamic_encoding(x)
 
         if s is not None:
             # Static encoding and unsqueezing: (B, C) ->  (B, E, 1)
             s_enc = self.static_encoding(s.unsqueeze(-1))
 
-            # Add static encoding to dynamic encoding: (B, E, S) + (B, E, 1) -> (B, E, S)
-            x_enc = x_enc + s_enc
+            # Multiply static encoding and dynamic encoding: (B, E, S) + (B, E, 1) -> (B, E, S)
+            enc = enc + s_enc
 
-        return x_enc
-
-    def forward(self, x: Tensor, s: Tensor, tau: float) -> Tensor:
-
-        # Encoding of dynamic and static features: (B, D, S), (B, C) -> (B, E - 1, S)
-        enc = self.encode(x=x, s=s)
-
-        # Pad tau: (B, E - 1, S) -> (B, E, S)
-        enc = self.pad_tau(enc, tau)
-
-        # Temporal layer: (B, E, S) -> (B, E, S)
-        out = self.temporal_forward(enc)
+        # Temporal layer and dropout: (B, E, S) -> (B, E, S)
+        temp_enc = self.temporal_forward(enc)
+        temp_enc = self.dropout1d(temp_enc)
 
         # Pad tau: (B, E, S) -> (B, E + 1, S)
-        out = self.pad_tau(out, tau)
+        temp_enc = self.pad_tau(x=temp_enc, tau=tau)
 
-        # Output layer and activation: (B, E + 1, S) -> (B, O, S)
-        out = self.out_layer(out)
+        # Output layer, and activation: (B, E + 1, S) -> (B, O, S)
+        out = self.output_layer(temp_enc)
         out = self.out_activation(out)
 
         return out
 
-
-from utils.torch_modules import TemporalConvNet, Transform
-
-class TCN(TemporalNet):
-    """TCN based rainfall-runoff module."""
-    def __init__(
-            self,
-            model_dim: int = 32,
-            tcn_kernel_size: int = 4,
-            tcn_dropout:float = 0.0,
-            tcn_layers: int = 1,
-            **kwargs) -> None:
-
-        super().__init__(model_dim=model_dim, **kwargs)
-        self.model_type = 'TCN'
-
-        self.save_hyperparameters()
-
-        self.tcn = TemporalConvNet(
-            num_inputs=model_dim,
-            num_outputs=-1,
-            num_hidden=model_dim,
-            kernel_size=tcn_kernel_size,
-            num_layers=tcn_layers,
-            dropout=tcn_dropout
-        )
-
-    def temporal_forward(self, x: Tensor) -> Tensor:
-        out = self.tcn(x)
-        return out
-
-
-class LSTM(TemporalNet):
-    """TCN based rainfall-runoff module."""
-    def __init__(
-            self,
-            model_dim: int = 32,
-            lstm_layers: int = 1,
-            **kwargs) -> None:
-
-        super().__init__(model_dim=model_dim, **kwargs)
-        self.model_type = 'LSTM'
-
-        self.save_hyperparameters()
-
-        self.to_channel_last = Transform(transform_fun=lambda x: x.transpose(1, 2), name='Transpose(1, 2)')
-
-        self.lstm = torch.nn.LSTM(
-            input_size=model_dim,
-            hidden_size=model_dim,
-            num_layers=lstm_layers,
-            batch_first=True,
-        )
-
-        self.to_sequence_last = Transform(transform_fun=lambda x: x.transpose(1, 2), name='Transpose(1, 2)')
-
-    def temporal_forward(self, x: Tensor) -> Tensor:
-        out = self.to_channel_last(x)
-        out, _ = self.lstm(out)
-        out = self.to_sequence_last(out)
-        return out
-
-
-
-import math
-
-class PositionalEncoding(torch.nn.Module):
-    """Positional encoding as in Attention is all you need https://arxiv.org/pdf/1706.03762.pdf
-
-    Adapted from the PyTorch tutorial: https://pytorch.org/tutorials/beginner/transformer_tutorial.html
-    """
-    def __init__(
-            self,
-            d_model: int,
-            max_len: int,
-            num_unique: int = 10000,
-            dropout: float = 0.1):
-        """Initialize PositionalEncoging.
+    def temporal_pre_repeated(self, x: Tensor, s: Tensor | None, tau: float) -> Tensor:
+        """Temoral layer with repeated pre-fusion.
 
         Args:
-            d_model: Model dimensionalitz / embedding size.
-            max_len: Maximum length that needs to be encoded.
-            num_unique: Number of unique values that can be encoded. Should be >= `max_len`. Defaults to 10k.
-            dropout: The dropout applied after positional encoding. Default is 0.1.
-
-        """
-        super().__init__()
-
-        self.d_model = d_model
-        self.max_len = max_len
-        self.num_unique = num_unique
-
-        self.dropout = torch.nn.Dropout(p=dropout)
-
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(num_unique) / d_model))
-        pe = torch.zeros(max_len, 1, d_model)
-        pe[:, 0, 0::2] = torch.sin(position * div_term)
-        pe[:, 0, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('pe', pe)
-        self.pe: Tensor
-
-    def forward(self, x: Tensor) -> Tensor:
-        """
-        Args:
-            x: Tensor, shape [S, N, E].
+            x: The dynamic inputs, shape (batch, dynamic_channels, sequence)
+            s: The static inputs, shape (batch, static_channels)
+            tau: The optional tau probability for expectile/quantile regression.
 
         Returns:
-            Tensor, shape [S, N, E].
+            A tensor of predicted values (batch, outputs, sequence).
+
         """
 
-        out = x + self.pe[:x.size(0)]
-        return self.dropout(out)
+        # Fusion of dynamic and static features: (B, D, S), (B, C) -> (B, E, S)
+        enc = self.pre_fusion_layer(x=x, s=s)
 
-    def __repr__(self) -> str:
-        s = f'PositionalEncoding(d_model={self.d_model}, max_len={self.max_len}, num_unique={self.num_unique}, '
-        s += f'dropout={self.dropout}): [S, N, E] -> [S, N, E]'
-        return s
+        # Temporal layer and dropout: (B, E, S) -> (B, E, S)
+        temp_enc = self.temporal_forward(enc)
+        temp_enc = self.dropout1d(temp_enc)
 
+        # Pad tau: (B, E, S) -> (B, E + 1, S)
+        temp_enc = self.pad_tau(x=temp_enc, tau=tau)
 
-
-import math
-
-class MHA(TemporalNet):
-    """TCN based rainfall-runoff module."""
-    def __init__(
-            self,
-            model_dim: int = 32,
-            mha_nhead: int = 4,
-            mha_layers: int = 1,
-            mha_dropout: float = 0.1,
-            mhs_max_context: int = 365,
-            mhs_pos_enc_length: int = 1000,
-            **kwargs) -> None:
-
-        super().__init__(model_dim=model_dim, **kwargs)
-        self.model_type = 'Transformer'
-
-        self.save_hyperparameters()
-
-        self.model_dim = model_dim
-        self.max_context = mhs_max_context
-
-        self.pos_encoder = PositionalEncoding(
-            d_model=model_dim,
-            max_len=mhs_pos_enc_length,
-            num_unique=1000,
-            dropout=mha_dropout)
-
-        self.to_sequence_first = Transform(transform_fun=lambda x: x.permute(2, 0, 1), name='Permute(2, 0, 1)')
-
-        encoder_layer = torch.nn.TransformerEncoderLayer(
-            d_model=model_dim,
-            dim_feedforward=model_dim * 2,
-            nhead=mha_nhead,
-            dropout=mha_dropout)
-
-        self.transformer_encoder = torch.nn.TransformerEncoder(
-            encoder_layer,
-            num_layers=mha_layers
-        )
-
-        self.to_batch_first = Transform(transform_fun=lambda x: x.permute(1, 2, 0), name='Permute(1, 2, 0)')
-
-    def temporal_forward(self, x: Tensor) -> Tensor:
-        x_enc = x * math.sqrt(self.model_dim)
-
-        x_enc = self.to_sequence_first(x_enc)
-
-        x_enc = self.pos_encoder(x_enc)
-
-        src_mask = self.causal_mask(sz=len(x_enc), max_context= self.max_context)
-
-        out = self.temporal_forward_loop(x=x_enc, src_mask=src_mask)
-
-        out = self.to_batch_first(out)
+        # Output layer, and activation: (B, E + 1, S) -> (B, O, S)
+        out = self.output_layer(temp_enc)
+        out = self.out_activation(out)
 
         return out
 
-    def temporal_forward_loop(self, x: Tensor, src_mask: Tensor) -> Tensor:
-        if self.training:
-            out = self.transformer_encoder(x, src_mask)
+    def temporal_post_repeated(self, x: Tensor, s: Tensor | None, tau: float) -> Tensor:
+        """Temoral layer with repeated post-fusion.
+
+        Args:
+            x: The dynamic inputs, shape (batch, dynamic_channels, sequence)
+            s: The static inputs, shape (batch, static_channels)
+            tau: The optional tau probability for expectile/quantile regression.
+
+        Returns:
+            A tensor of predicted values (batch, outputs, sequence).
+
+        """
+
+        # Encoding of dynamic features: (B, D, S) -> (B, E, S)
+        x_enc = self.input_layer(x)
+
+        # Temporal layer: (B, E, S) -> (B, E, S)
+        temp_enc = self.temporal_forward(x_enc)
+
+        # Fusion of dynamic and static features and dropout: (B, E, S), (B, C) -> (B, E, S)
+        temp_enc = self.post_fusion_layer(x=temp_enc, s=s)
+        temp_enc = self.dropout1d(temp_enc)
+
+        # Pad tau: (B, E, S) -> (B, E + 1, S)
+        out = self.pad_tau(x=temp_enc, tau=tau)
+
+        # Output layer, and activation: (B, E + 1, S) -> (B, O, S)
+        out = self.output_layer(out)
+        out = self.out_activation(out)
+
+        return out
+
+    def forward(self, x: Tensor, s: Tensor, tau: float) -> Tensor:
+
+        if self.fusion_method == 'pre_encoded':
+            return self.temporal_pre_encoded(x=x, s=s, tau=tau)
+        elif self.fusion_method == 'pre_repeated':
+            return self.temporal_pre_repeated(x=x, s=s, tau=tau)
+        elif self.fusion_method == 'post_repeated':
+            return self.temporal_post_repeated(x=x, s=s, tau=tau)
         else:
-            seq_len = len(x)
-        
-        return out
+            raise self.fusion_method_not_found(self.fusion_method)
 
-    def causal_mask(
-            self,
-            sz: int,
-            max_context: int | None = None) -> Tensor:
-        """Generate a square causal mask for the sequence. The masked positions are filled with float('-inf').
-            Unmasked positions are filled with float(0.0).
-        """
-        causal_mask  = torch.triu(
-            torch.full((sz, sz), float('-inf')).to(device=self.device, dtype=self.dtype),
-            diagonal=1,
+    def fusion_method_not_found(self, fusion_method: str) -> ValueError:
+        return ValueError(
+            f'`fusion_method` \'{fusion_method}\' is not defined.'
         )
 
-        if max_context is not None:
-            max_context_mask = torch.tril(
-                torch.full((sz, sz), float('-inf')).to(device=self.device, dtype=self.dtype),
-                diagonal=-max_context,
-            )
-            causal_mask += max_context_mask
+    # def forward(self, x: Tensor, s: Tensor, tau: float) -> Tensor:
 
-        return causal_mask
+    #     if self.pre_fusion:
+
+    #         # Fusion of dynamic and static features: (B, D, S), (B, C) -> (B, E, S)
+    #         enc = self.pre_fusion_layer(x=x, s=s)
+
+    #     else:
+
+    #         # Encoding of dynamic features: (B, D, S) -> (B, E, S)
+    #         enc = self.input_layer(x)
+
+    #     # 2D dropout.
+    #     enc = self.in_dropout1d(enc)
+
+    #     # Temporal layer: (B, E, S) -> (B, E, S)
+    #     out = self.temporal_forward(enc)
+
+    #     if not self.pre_fusion:
+    #         # Fusion of dynamic and static features: (B, E, S), (B, C) -> (B, E, S)
+    #         out = self.post_fusion_layer(x=out, s=s)
+
+    #     # 2D dropout.
+    #     enc = self.out_dropout1d(enc)
+
+    #     # Pad tau: (B, E, S) -> (B, E + 1, S)
+    #     out = self.pad_tau(x=out, tau=tau)
+
+    #     # Output layer, and activation: (B, E + 1, S) -> (B, O, S)
+    #     out = self.output_layer(out)
+    #     out = self.out_activation(out)
+
+    #     return out

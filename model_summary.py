@@ -33,6 +33,11 @@ if __name__ == '__main__':
 
         for target in args.targets:
             model_comp_plot_path = os.path.join(out_dir, f'model_comp_{target}.png')
-            plot_model_comp(dir=path, target=target, ref=args.benchmark, save_path=model_comp_plot_path)
+            plot_model_comp(
+                dir=path,
+                target=target,
+                ref=args.benchmark,
+                save_path=model_comp_plot_path,
+                time_slices=['1995,1999', '2016,2020'])
 
         logger.info(f'  > Done.')

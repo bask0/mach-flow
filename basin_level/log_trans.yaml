@@ -1,4 +1,0 @@
-criterion:
-  name: l2
-  log_transform: true
-  inference_taus:

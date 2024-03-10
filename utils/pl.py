@@ -46,6 +46,20 @@ class PredictionWriter(BasePredictionWriter):
         taus = [p.tau for p in predictions[0]]
 
         encoding = {}
+
+        for var in ds.data_vars:
+            if 'time' in ds[var].dims:
+                ck = (40, -1)
+            else:
+                ck = (40,)
+            encoding.update(
+                {
+                    var: {
+                        'chunks': ck,
+                    }
+                }
+            )
+
         for t, target in enumerate(pdl.dataset.targets):
             new_target_name = target + '_mod'
             da = xr.full_like(ds[target], np.nan).expand_dims(tau=taus).copy().compute()
@@ -66,7 +80,7 @@ class PredictionWriter(BasePredictionWriter):
             encoding.update(
                 {
                     new_target_name: {
-                        'chunks': (1, -1),
+                        'chunks': (1, 40, -1),
                     }
                 }
             )
@@ -125,6 +139,10 @@ class MyLightningCLI(LightningCLI):
         # Training routine args
         # -------------------------------------
         parser.add_argument(
+            '--overwrite',
+            action='store_true',
+            help='overwrite existing runs. If not set, existing runs will be skipped.')
+        parser.add_argument(
             '--dev',
             action='store_true',
             help='quick dev run with one epoch and 1 batch.')
@@ -141,9 +159,9 @@ class MyLightningCLI(LightningCLI):
             default='l2',
             help='the criterion to use for optimization, defauls to \'l2\'.')
         parser.add_argument(
-            '--criterion.log_transform',
+            '--criterion.sqrt_transform',
             action='store_true',
-            help='whether to compute loss on log transformed scale.')
+            help='whether to compute loss on sqrt transformed scale.')
         parser.add_argument(
             '--criterion.inference_taus',
             nargs='+',
@@ -163,12 +181,12 @@ class MyLightningCLI(LightningCLI):
             'data.norm_args_features', 'model.init_args.norm_args_features', apply_on='instantiate')
         parser.link_arguments(
             'data.norm_args_stat_features', 'model.init_args.norm_args_stat_features', apply_on='instantiate')
-        # parser.link_arguments(
-        #     'data.norm_args_targets', 'model.init_args.norm_args_targets', apply_on='instantiate')
+        parser.link_arguments(
+            'data.norm_args_targets', 'model.init_args.norm_args_targets', apply_on='instantiate')
         parser.link_arguments(
             'criterion.name', 'model.init_args.criterion', apply_on='parse')
         parser.link_arguments(
-            'criterion.log_transform', 'model.init_args.log_transform', apply_on='parse')
+            'criterion.sqrt_transform', 'model.init_args.sqrt_transform', apply_on='parse')
         parser.link_arguments(
             'criterion.inference_taus', 'model.init_args.inference_taus', apply_on='parse')
 
@@ -210,6 +228,20 @@ class MyLightningCLI(LightningCLI):
                 'name': ''
             }
         }
+
+    # @staticmethod
+    # def link_optimizers_and_lr_schedulers(parser):
+    #     # Set lr_scheduler's num_training_steps from datamodule class
+    #     parser.link_arguments(
+    #         'optimizer.init_args.lr', 'lr_scheduler.init_args.max_lr', apply_on='parse')
+    #     # parser.link_arguments(
+    #     #     'data.num_steps_per_epoch', 'lr_scheduler.init_args.steps_per_epoch', apply_on='instantiate')
+    #     # parser.link_arguments(
+    #     #     'trainer.max_epochs', 'lr_scheduler.init_args.epochs', apply_on='parse')
+    #     parser.link_arguments(
+    #         'trainer.max_epochs', 'lr_scheduler.init_args.total_steps', apply_on='parse')
+
+    #     LightningCLI.link_optimizers_and_lr_schedulers(parser)
 
 
 def get_dummy_cli() -> MyLightningCLI:

@@ -4,11 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
 
+from dataset.machflowdata import MachFlowDataModule
 from utils.metrics import compute_metrics
 from utils.data import load_xval_test_set
 
 
-OPTUNA_PLOTS = [
+OPTUNA_PLOTS_TUNING = [
     'plot_slice',
     'plot_contour',
     'plot_rank',
@@ -19,10 +20,19 @@ OPTUNA_PLOTS = [
     'plot_timeline',
 ]
 
+OPTUNA_PLOTS_XVAL = [
+    'plot_timeline',
+]
 
-def study_plots(study: optuna.Study, out_dir: str):
-    for optuna_plot in OPTUNA_PLOTS:
-        try: 
+
+def study_plots(study: optuna.Study, out_dir: str, is_xval: bool = False):
+    if is_xval:
+        optuna_plots =  OPTUNA_PLOTS_XVAL
+    else:
+        optuna_plots =  OPTUNA_PLOTS_TUNING
+
+    for optuna_plot in optuna_plots:
+        try:
             fig = getattr(optuna.visualization, optuna_plot)(study)
 
             fig.write_image(os.path.join(out_dir, optuna_plot + '.png'), scale=2)
@@ -38,7 +48,7 @@ def study_plots(study: optuna.Study, out_dir: str):
 
     create_html(dir=out_dir)
 
-def study_summary(study_path: str, study_name: str):
+def study_summary(study_path: str, study_name: str, is_xval: bool = False):
 
     base_dir = os.path.dirname(study_path)
     plot_dir = os.path.join(base_dir, 'optuna_plots')
@@ -46,20 +56,21 @@ def study_summary(study_path: str, study_name: str):
 
     study = optuna.load_study(study_name=study_name, storage=f'sqlite:///{study_path}')
 
-    study_plots(study=study, out_dir=plot_dir)
+    study_plots(study=study, out_dir=plot_dir, is_xval=is_xval)
 
 
 def get_cdf(da: xr.DataArray) -> tuple[np.ndarray, np.ndarray, float]:
     da = da.load()
     da = da.where(da.notnull(), drop=True)
-    count, bins = np.histogram(da, bins=len(da))
-    bins = (bins[:-1] + bins[1:]) / 2
+    bins = list(sorted(da.values)) + [np.inf]
+    count, bins = np.histogram(da, bins=bins)
+    # bins = (bins[:-1] + bins[1:]) / 2
+    bins = bins[:-1]
     pdf = count / sum(count) 
     cdf = np.cumsum(pdf)
-    # xloc = np.interp([0.5], cdf, bins)
+    xloc = da.median().compute()
 
-    #return bins, cdf, xloc.item()
-    return bins, cdf, da.median().item()
+    return bins, cdf, xloc.item()
 
 
 def plot_cdf(
@@ -200,6 +211,7 @@ def xval_station_metrics(
         target: str = 'Qmm',
         benchmark: str | None = 'prevah',
         metrics: list[str] = ['bias', 'r', 'nse'],
+        time_slices: list[str] | None = None,
         **subset) -> xr.Dataset:
     pattern = os.path.join(dir, '*', '*', 'xval')
     paths = glob(pattern)
@@ -212,6 +224,16 @@ def xval_station_metrics(
         name = f'{name_[-2]}-{name_[-3]}' 
         '-'.join(path.split('/')[-3:-1])
         ds = load_xval_test_set(xval_dir=path).sel(**subset)
+
+        if time_slices is not None:
+            if benchmark is None:
+                vars = [target, target + '_mod']
+            else:
+                vars = [target, target + '_mod', f'{target}_{benchmark}']
+            ds = MachFlowDataModule.mask_time_slices(
+                mask=ds[vars],
+                tranges=time_slices,
+                mask_is_ds=True)
 
         obs = ds[target]
         mod = ds[target + '_mod']
@@ -232,7 +254,7 @@ def xval_station_metrics(
     mets = xr.concat(mets, dim='run')
     mets = mets.assign_coords(run=names)
 
-    return mets
+    return mets.compute()
 
 
 class ModelColors(object):
@@ -252,23 +274,32 @@ def plot_model_comp(
         ref: str = 'prevah',
         save_path: str | None = None,
         title_postfix: str = '',
+        time_slices: list[str] | None = None,
         **subset
     ):
 
-    ds = xval_station_metrics(dir=dir, target=target, benchmark=ref, metrics=['r', 'nse', 'absbias'], **subset)
+    ds = xval_station_metrics(
+        dir=dir,
+        target=target,
+        benchmark=ref,
+        metrics=['r', 'nse', 'absbias', 'kge'],
+        time_slices=time_slices,
+        **subset)
 
     metrics = list(ds.data_vars)
     num_metrics = len(metrics)
 
     fig, axes = plt.subplots(
-        2, num_metrics, figsize=(3 * num_metrics, 6), sharey='row', squeeze=False,
-        gridspec_kw={'height_ratios': [10, 5], 'hspace': 0.3})
+        2, num_metrics, figsize=(3 * num_metrics, 8), sharey='row', squeeze=False,
+        gridspec_kw={'height_ratios': [1, 1], 'hspace': 0.2})
 
+    directions = []
     for i, metric in enumerate(metrics):
 
         da = ds[metric]
         rel_metrics = da - da.sel(run=ref)
-        mcolors = ModelColors(cmap='tab10')
+        directions.append(da.attrs.get('direction', 'none'))
+        mcolors = ModelColors(cmap='tab20')
 
         for run in da.run.values:
 
@@ -285,8 +316,8 @@ def plot_model_comp(
 
             bins, cdf, xloc = get_cdf(da.sel(run=run))
 
-            zorder = 1 if run == ref else 2
-            ax.plot(bins, cdf, label=run, color=col, alpha=0.6, lw=1.2, zorder=zorder)
+            zorder = 2 if run == ref else 1
+            ax.plot(bins, cdf, label=run, color=col, alpha=1.0, lw=0.8, zorder=zorder)
             ax.axvline(xloc, ymin=0, ymax=0.5, color=col, ls='--', alpha=0.8, lw=0.8)
             ax.axhline(0.5, color='0.2', ls='--', alpha=0.8, lw=0.8)
 
@@ -311,17 +342,28 @@ def plot_model_comp(
 
 
     axes[0, 0].set_ylabel('Cummulative probability')
-    axes[0, 0].legend(frameon=False, fontsize=7)
+    axes[0, 0].legend(frameon=False, fontsize=7, loc='upper left')
 
-    for ax in axes[1, :]:
+    for i, ax in enumerate(axes[1, :]):
+        direction = directions[i]
         xmin, xmax = ax.get_xlim()
         ax.axvline(0, color='0.2', ls=':', lw=0.8)
+
+        if direction == 'max':
+            x_pos = -(xmax - xmin) * 0.02
+            ha = 'right'
+            arrow = 'larrow'
+        else:
+            x_pos = (xmax - xmin) * 0.02
+            ha = 'left'
+            arrow = 'rarrow'
+
         ax.text(
-            -(xmax- xmin) * 0.02, 1.5, f'{ref} better',
-            bbox=dict(boxstyle='larrow,pad=0.2',
+            x_pos, 1.5, f'{ref} better',
+            bbox=dict(boxstyle=f'{arrow},pad=0.2',
             fc='0.7', ec='none', alpha=0.4),
             color='0.2',
-            va='center', ha='right', fontsize=9)
+            va='center', ha=ha, fontsize=9)
 
     yticklabels = [run for run in ds.run.values if run != ref]
     axes[1, 0].set_yticks(np.arange(1, len(yticklabels) + 1), yticklabels, size=9)
@@ -359,6 +401,7 @@ def plot_xval_cdf(
         ref_name: str | None = 'Qmm_prevah',
         save_path: str | None = None,
         subset: dict = {},
+        time_slices: list[str] | None = None,
         **kwargs) -> None:
 
     if save_path is None:
@@ -368,18 +411,27 @@ def plot_xval_cdf(
 
     ds = load_xval_test_set(xval_dir=xval_dir)
     ds = ds.sel(**subset)
+
+    if time_slices is not None:
+        ds = MachFlowDataModule.mask_time_slices(
+            mask=ds[[obs_name, mod_name, ref_name]],
+            tranges=time_slices,
+            mask_is_ds=True)
+
     ds = ds.sel(tau=0.5)
 
     mask = (ds[mod_name].notnull() & ds[ref_name].notnull()).compute()
     ds[mod_name] = ds[mod_name].where(mask).compute()
     ds[ref_name] = ds[ref_name].where(mask).compute()
 
-    met = compute_metrics(metrics=['r', 'nse', 'absbias'], obs=ds[obs_name], mod=ds[mod_name], dim='time')
+    met = compute_metrics(
+        metrics=['r', 'nse', 'absbias', 'kge'], obs=ds[obs_name], mod=ds[mod_name], dim='time')
 
     if ref_name is None:
         met_ref = None
     else:
-        met_ref = compute_metrics(metrics=['r', 'nse', 'absbias'], obs=ds[obs_name], mod=ds[ref_name], dim='time')
+        met_ref = compute_metrics(
+            metrics=['r', 'nse', 'absbias', 'kge'], obs=ds[obs_name], mod=ds[ref_name], dim='time')
 
     plot_cdf(
         ds=met,
@@ -388,7 +440,6 @@ def plot_xval_cdf(
         title_postfix=subset_to_label(subset),
         **kwargs
     )
-
 
 
 head_string = \

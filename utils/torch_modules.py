@@ -13,54 +13,7 @@ import xarray as xr
 
 from typing import Any, Callable
 
-
-TORCH_DTYPES = {
-    'float16': torch.float16,
-    'float32': torch.float32,
-    'float': torch.float32,
-    'float64': torch.float64,
-}
-
-
-def get_activation(activation: str | None) -> torch.nn.Module:
-    """Get PyTorch activation function by string query.
-
-    Args:
-        activation (str, None): activation function, one of `relu`, `leakyrelu`, `selu`, `sigmoid`, `softplus`,
-            `tanh`, `identity` (aka `linear` or `none`). If `None` is passed, `None` is returned.
-
-    Raises:
-        ValueError: if activation not found.
-
-    Returns:
-        PyTorch activation or None: activation function
-    """
-
-    if activation is None:
-        return torch.nn.Identity()
-
-    a = activation.lower()
-
-    if a == 'linear' or a == 'none':
-        a = 'identity'
-
-    activations = dict(
-        relu=torch.nn.ReLU,
-        leakyrelu=torch.nn.LeakyReLU,
-        selu=torch.nn.SELU,
-        sigmoid=torch.nn.Sigmoid,
-        softplus=torch.nn.Softplus,
-        tanh=torch.nn.Tanh,
-        identity=torch.nn.Identity
-    )
-
-    if a in activations:
-        return activations[a]()
-    else:
-        choices = ', '.join(list(activations.keys()))
-        raise ValueError(
-            f'activation `{activation}` not found, chose one of: {choices}.'
-        )
+from utils.torch import get_activation
 
 
 class Transform(torch.nn.Module):
@@ -151,8 +104,9 @@ class EncodingModule(torch.nn.Module):
 
         Args:
             num_in (int): the input channel size (C_in).
-            num_enc (int): the encoding size.
-            num_layers (int): the number of layers (C_out).
+            num_enc (int): the encoding size (C_out).
+            num_layers (int): the number of layers. Note that num_layers=1 is a linear transformation with
+                activation_last applied afterwards.
             dropout (float): the dropout applied to all but the output layer.
             unsqueeze_input (bool): whether to unsqueeze the input.
             hidden_size_factor (int): the hidden size as a factor of the encoding size (`num_enc`);
@@ -550,6 +504,9 @@ class PadTau(torch.nn.Module):
 
         return torch.nn.functional.pad(x, (0, 0, 0, 1, 0, 0), mode='constant', value=tau)
 
+    def __repr__(self) -> str:
+        return 'PadTau()'
+
 
 TensorLike = np.ndarray[int, np.dtype[np.float32]] | torch.Tensor | list[float]
 
@@ -563,7 +520,7 @@ class Normalize(torch.nn.Module):
 
     Equations:
         - normalization: (x - mean(x_global)) / std(x_global)
-        - de normalization: x * std(x_global) + std(x_global)
+        - denormalization: x * std(x_global) + std(x_global)
 
     Shapes:
         In the forward call, the input tensor is expected to be batched. For sample-level normalization,
@@ -582,9 +539,8 @@ class Normalize(torch.nn.Module):
             self,
             means: TensorLike,
             stds: TensorLike,
-            features_dim: int = 0,
-            dtype: str = 'float32') -> None:
-        """Initialize the Normelize module.
+            features_dim: int = 0) -> None:
+        """Initialize the Normalize module.
 
         Args:
             means (TensorLike): A vector of mean values for normalization.
@@ -592,20 +548,8 @@ class Normalize(torch.nn.Module):
             features_dim (int, optional): The dimension to normalize over. Corresponds to unbatched dimension of the
                 sample. If a sample has shape (channels=4, sequence=100), and (batch=10, channels=4, sequence=100), we
                 want to normalize over dim=0, as this is the feature dimension. Defaults to 0.
-            dtype (str, optional): The data dtype as string. Defaults to \'float32\'.
-                Technical note: don't change to torch dtypes such as `torch.float32` because these can't be saved
-                as hyperparameters.
         """
         super().__init__()
-
-        if dtype not in TORCH_DTYPES:
-            raise ValueError(
-                f'`dtype={dtype}` is not a valid dtype.'
-            )
-        torch_dtype = TORCH_DTYPES[dtype]
-
-        #self.means = torch.as_tensor(means, dtype=torch_dtype)
-        #self.stds = torch.as_tensor(stds, dtype=torch_dtype)
 
         self.register_buffer('means', torch.as_tensor(means), persistent=True)
         self.register_buffer('stds', torch.as_tensor(stds), persistent=True)
@@ -665,16 +609,9 @@ class Normalize(torch.nn.Module):
         return x * stds + means
 
     @staticmethod
-    def get_normalize_args(
+    def make_kwargs(
             ds: xr.Dataset,
-            norm_variables: str | list[str],
-            dtype: str = 'float32') -> dict[str, Any]:
-
-        if dtype not in TORCH_DTYPES:
-            raise ValueError(
-                f'`dtype={dtype}` is not a valid dtype.'
-            )
-        torch_dtype = TORCH_DTYPES[dtype]
+            norm_variables: str | list[str]) -> dict[str, Any]:
 
         norm_variables = [norm_variables] if isinstance(norm_variables, str) else norm_variables
 
@@ -689,8 +626,7 @@ class Normalize(torch.nn.Module):
         args = {
             'means': means,
             'stds': stds,
-            'features_dim': 0,
-            'dtype': dtype
+            'features_dim': 0
         }
 
         return args
@@ -708,3 +644,239 @@ class Normalize(torch.nn.Module):
         stds_expanded = self.stds[dims]
 
         return means_expanded, stds_expanded
+
+    def __repr__(self) -> str:
+        return 'Normalize()'
+
+
+class RobustStandardize(torch.nn.Module):
+    """Robust standardization module.
+
+    The module is initialized with precomputed 0.95 quantile (Q95), which are then used to standardize the input data
+    on-the-fly. Optionally, the inverse (destandardization) can be computed. Standardization ('robust', division by
+    the Q95) is meant for positive variables with large extreme values, such as runoff or discharge.
+
+    Note that the data statistics should be computed from the training set!
+
+    Equations:
+        - standardization (robust): x / Q95(x_global)
+        - destandardization (robust): x *  Q95(x_global)
+
+    Shapes:
+        In the forward call, the input tensor is expected to be batched. For sample-level standardization, use the `robust_standardize` and `robust_destandardize` methods,  respectively. The argument `features_dim` indicates 
+        the channel dimension to standardize without the batch dimension. For an input with shape (B, C, S), with
+        the channel dimension at position 1, the features_dim would be 0 (corresponding to the unbatched data).
+
+        - Input shape: (B, ..., C, ...)
+        - Output shape: (B, ..., C, ...)
+
+        ...where C must correspond to the provided `means` and `stds` vector length.
+
+    """
+
+    def __init__(
+            self,
+            q95s: TensorLike,
+            features_dim: int = 0) -> None:
+        """Initialize the Normalize module.
+
+        Args:
+            q95s (TensorLike): A vector of Q95 (0.95 quantile) values for normalization.
+            features_dim (int, optional): The dimension to standardize over. Corresponds to unbatched dimension of the
+                sample. If a sample has shape (channels=4, sequence=100), and (batch=10, channels=4, sequence=100), we
+                want to standardize over dim=0, as this is the feature dimension. Defaults to 0.
+        """
+        super().__init__()
+
+        self.register_buffer('q95s', torch.as_tensor(q95s), persistent=True)
+
+        self.dim = features_dim
+
+    def forward(self, x: Tensor, invert: bool = False) -> Tensor:
+        """(De)normalize input tensor `x` using predefined statistics.
+
+        Args:
+            x (Tensor): The input tensor to be standardized.
+            invert (bool, optional): Whether to standardized (invert=False) or destandardized (invert=True).
+                Defaults to False.
+
+        Returns:
+            Tensor: The (de)standardized tensor `x`.
+        """
+        if invert:
+            return self.robust_destandardize(x, is_batched=True)
+        else:
+            return self.robust_standardize(x, is_batched=True)
+
+    def robust_standardize(self, x: Tensor, is_batched: bool = False) -> Tensor:
+        """Standardize input x.
+
+        Equation: x / Q95(x_global)
+
+        Args:
+            x (Tensor): The input tensor to standardize. The stats (`q95`) are applied over dimension
+                `dim`, or `dim` + 1 if `is_batched=True`.
+            is_batched (bool, optional): Whether the input Tensor x is a batch (first dim is batch dim) or a single
+                sample. Defaults to False.
+
+        Returns:
+            Tensor: The standardized tensor with same shape as input.
+        """
+        q95s = self._expand_stats_to_x(x=x, is_batched=is_batched)
+
+        return x / q95s
+
+    def robust_destandardize(self, x: Tensor, is_batched: bool = False) -> Tensor:
+        """Destandardize input x.
+
+        Equation: x * Q95(x_global)
+
+        Args:
+            x (Tensor): The input tensor to destandardize. The stats (`q95`) are applied over dimension
+                `dim`, or `dim` + 1 if `is_batched=True`.
+            is_batched (bool, optional): Whether the input Tensor x is a batch (first dim is batch dim) or a single
+                sample. Defaults to False.
+
+        Returns:
+            Tensor: The destandardized tensor with same shape as input.
+        """      
+        q95s = self._expand_stats_to_x(x=x, is_batched=is_batched)
+
+        return x * q95s
+
+    @staticmethod
+    def make_kwargs(
+            ds: xr.Dataset,
+            norm_variables: str | list[str]) -> dict[str, Any]:
+
+        norm_variables = [norm_variables] if isinstance(norm_variables, str) else norm_variables
+
+        q95s = []
+        for var in norm_variables:
+            da = ds[var].load()
+                
+            q95s.append(da.quantile(q=0.95).item())
+
+        args = {
+            'q95s': q95s,
+            'features_dim': 0
+        }
+
+        return args
+
+    def _expand_stats_to_x(self, x: Tensor, is_batched: bool) -> Tensor:
+        """Expand (aka unsqueeze) stats to match input TensorLike shape.
+        
+        x (TensorLike): The Tensor to (de)normalize.
+        is_batched (bool): Whether the input Tensor x is a batch (first dim is batch dim) or a single sample.
+        """
+        dim = self.dim + 1 if is_batched else self.dim
+        dims = tuple([slice(None, None) if d == dim else None for d in range(x.ndim)])
+
+        q95s_expanded = self.q95s[dims]
+
+        return q95s_expanded
+
+    def __repr__(self) -> str:
+        return 'RobustStandardize()'
+
+
+class DataTansform(torch.nn.Module):
+    def __init__(self, **kwargs):
+        super().__init__()
+
+        if 'q95s' in kwargs:
+            self.transform = RobustStandardize(**kwargs)
+        elif ('means' in kwargs) and ('stds' in kwargs):
+            self.transform = Normalize(**kwargs)
+        else:
+            raise ValueError(
+                f'arguments passed to `DataTansform` with keys {list(kwargs.keys())} do not match '
+                'RobustStandardize(q95s=...) nor Normalize(means=..., stds=...) requirements.'
+            )
+
+    def forward(self, x: Tensor, invert: bool = False) -> Tensor:
+        return self.transform(x=x, invert=invert)
+
+    def __repr__(self) -> str:
+        return str(self.transform)
+
+
+class SeqZeroPad(torch.nn.Module):
+    """Implements zero padding for causal 1D convolution.
+
+    Padds a 3D tensor at the beginning of the sequence dimension (last one).
+
+    Shapes:
+        x: (batch, channels, sequence)
+        out: (batch, channels, sequence + n_pad)
+    """
+    def __init__(self, n_pad: int): 
+        """Initialize SeqZeroPad.
+
+        Args:
+            n_pad: The number of zeros to pad.
+        """
+        super().__init__()
+
+        self.n_pad = n_pad
+
+    def forward(self, x: Tensor) -> Tensor:
+        if (ndim := x.ndim) != 3:
+            raise ValueError(
+                f'input must have three dimensions (batch, channel, sequence), has {ndim}.'
+            )
+
+        return torch.nn.functional.pad(x, (self.n_pad, 0, 0, 0, 0, 0), mode='constant', value=0.0)
+
+
+class TemporalCombine(torch.nn.Module):
+    """Combine dynamic and static features.
+
+    Shapes:
+        x: The dynamic inputs, shape (batch, num_dynamic_in, sequence)
+        s: The static inputs, shape (batch, num_static_in)
+
+        output: A tensor of combined dynamic and static features, shape (batch, num_out, sequence).
+
+    Args:
+        num_dynamic_in: Number of dynamic inputs.
+        num_static_in: Number of static inputs.
+        num_out: Encoding size.
+        hidden_size_factor: The hidden size is num_out * hidden_size_factor.
+        dropout: Dropout applied after each layer but last, a float in the range [0, 1]. Default is 0.0.
+
+    """
+    def __init__(
+            self,
+            num_dynamic_in: int,
+            num_static_in: int,
+            num_out: int,
+            num_layers: int,
+            hidden_size_factor: int = 2,
+            dropout: float = 0.0) -> None:
+        """Initialize TemporalCombine layer."""
+        super().__init__()
+
+        self.encoding_layer = EncodingModule(
+            num_in=num_dynamic_in + num_static_in,
+            num_enc=num_out,
+            num_layers=num_layers,
+            dropout=dropout,
+            hidden_size_factor=hidden_size_factor,
+            activation=torch.nn.Tanh(),
+            activation_last=torch.nn.Tanh()
+        )
+
+    def get_expand_arg(self, x: Tensor, s: Tensor) -> list[int]:
+        expand_size = list(x.shape)
+        expand_size[1] = s.shape[-1]
+
+        return expand_size
+
+    def forward(self, x: Tensor, s: Tensor) -> Tensor:
+        s = s.unsqueeze(-1).expand(*self.get_expand_arg(x=x, s=s))
+
+        xs = torch.cat((x, s), dim=1)
+
+        return self.encoding_layer(xs)

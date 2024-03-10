@@ -1,0 +1,4 @@
+data:
+  class_path: dataset.machflowdata.MachFlowDataModule
+  init_args:
+    use_additional_basins_as_training: true

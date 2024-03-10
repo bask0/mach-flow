@@ -1,7 +1,10 @@
 import optuna
 
-from models.base import TCN, LSTM, MHA
+from models.temporal_nets import TCN, LSTM, MHA
 from utils.tuning import SearchSpace, Tuner
+
+import torch
+torch.set_float32_matmul_precision('medium')
 
 
 def get_enc_search_space(trial: optuna.Trial) -> dict:
@@ -9,7 +12,7 @@ def get_enc_search_space(trial: optuna.Trial) -> dict:
     config = dict(
         model_dim=trial.suggest_categorical('model_dim', [64, 128, 256]),
         enc_dropout=trial.suggest_categorical('enc_dropout', [0.0, 0.2]),
-        enc_layers=trial.suggest_categorical('enc_layers', [1, 2]),
+        fusion_method=trial.suggest_categorical('fusion_method', ['pre_encoded', 'pre_repeated', 'post_repeated']),
     )
 
     return config
@@ -62,6 +65,26 @@ class TCNSearchSpace(SearchSpace):
         super().__init__(trial=trial, config=config)
 
 
+# class MHASearchSpace(SearchSpace):
+#     """Defines the search space for the multihead attention (MHA) model."""
+
+#     MODEL = MHA
+
+#     def __init__(self, trial: optuna.Trial) -> None:
+#         config = {
+#             'model': dict(
+#                 **get_enc_search_space(trial),
+#                 mha_heads=trial.suggest_categorical('mha_heads', [2, 4]),
+#                 mha_layers=trial.suggest_categorical('mha_layers', [1, 2, 3]),
+#                 mha_max_context=trial.suggest_categorical('mha_max_context', [50, 150, 250]),
+#                 mha_dropout=trial.suggest_categorical('mha_dropout', [0.0, 0.1, 0.2]),
+#             ),
+#             'optimizer': dict(
+#                 **get_optimizer_search_space(trial),
+#             )
+#         }
+#         super().__init__(trial=trial, config=config)
+
 class MHASearchSpace(SearchSpace):
     """Defines the search space for the multihead attention (MHA) model."""
 
@@ -71,9 +94,10 @@ class MHASearchSpace(SearchSpace):
         config = {
             'model': dict(
                 **get_enc_search_space(trial),
-                mha_nhead=trial.suggest_categorical('mha_nhead', [2, 4, 8]),
-                mha_layers=trial.suggest_categorical('mha_layers', [1, 2, 3]),
-                mha_dropout=trial.suggest_categorical('mha_dropout', [0.0, 0.1, 0.2]),
+                mha_heads=trial.suggest_categorical('mha_heads', [2, 4]),
+                mha_layers=trial.suggest_categorical('mha_layers', [1]),
+                mha_max_context=trial.suggest_categorical('mha_max_context', [50]),
+                mha_dropout=trial.suggest_categorical('mha_dropout', [0.0, 0.1]),
             ),
             'optimizer': dict(
                 **get_optimizer_search_space(trial),
@@ -86,11 +110,11 @@ if __name__ == '__main__':
 
     pruner = optuna.pruners.HyperbandPruner(
         min_resource=10,
-        reduction_factor=2
+        reduction_factor=3
     )
     sampler = optuna.samplers.TPESampler(
         consider_prior=False,
-        n_startup_trials=10,
+        n_startup_trials=15,
         seed=1,
         multivariate=True
     )
@@ -101,6 +125,6 @@ if __name__ == '__main__':
         log_dir='../runs'
         )
 
-    tuner.tune(n_trials=20)
+    tuner.tune(n_trials=60)
 
     tuner.xval()

@@ -4,18 +4,19 @@ import shutil
 import yaml
 import tempfile
 import optuna
+from warnings import warn
 from optuna.integration import PyTorchLightningPruningCallback
 from typing import Type, Callable, TypeVar, TYPE_CHECKING
 
 from models.base import LightningNet
 from utils.pl import cli_main, get_dummy_cli
 from utils.analysis import study_summary, plot_xval_cdf
+from utils.logging import get_logger
 
 if TYPE_CHECKING:
     from utils.pl import MyLightningCLI
 
-import logging
-logger = logging.getLogger('pytorch_lightning')
+logger = get_logger('tuning')
 
 
 class SearchSpaceMeta(type): 
@@ -243,11 +244,11 @@ class Tuner(object):
             self,
             sampler: optuna.samplers.BaseSampler,
             pruner: optuna.pruners.BasePruner,
-            log_dir: str = 'runs',
-            overwrite: bool = True) -> None:
+            log_dir: str = 'runs') -> None:
 
         cli = get_dummy_cli()
 
+        self.overwrite = cli.config['overwrite']
         self.is_dev = cli.config['dev']
         self.skip_tuning = cli.config['skip_tuning']
         search_spaces = get_search_spaces()
@@ -260,7 +261,6 @@ class Tuner(object):
         self.model = get_model_name_from_cli(cli)
         self.num_xval_folds = cli.config['data']['init_args']['num_cv_folds']
         self.targets = cli.config['data']['init_args']['targets']
-        self.overwrite = overwrite
 
         if self.model not in search_spaces:
             raise KeyError(
@@ -342,7 +342,7 @@ class Tuner(object):
     def tune(self, n_trials: int, **kwargs) -> None:
 
         if self.skip_tuning:
-            logger.warning('Tuning is skipped ue to \'--skip_tuning\'.')
+            logger.warning('Tuning is skipped due to \'--skip_tuning\'.')
             if not os.path.exists(self.exp_path_tune):
                 raise RuntimeError(
                     'no tuning runs found but \'--skip_tuning\'. Did you run tuning beforehand? '
@@ -350,14 +350,13 @@ class Tuner(object):
                 )
             return
 
+        skip = self.maybe_create_run_or_abort(self.exp_path_tune)
+        if skip:
+            return
+
         if self.is_dev:
             logger.warning('Setting `n_trials=2` for dev run.')
             n_trials = 2
-
-        if os.path.exists(self.exp_path_tune) and self.overwrite:
-            shutil.rmtree(self.exp_path_tune)
-
-        os.makedirs(self.exp_path_tune)
 
         study = self.new_study(db_path=self.db_path_tune, is_tune=True)
 
@@ -365,14 +364,30 @@ class Tuner(object):
         self.summarize_tuning()
 
     def xval(self) -> None:
-        if os.path.exists(self.exp_path_xval) and self.overwrite:
-            shutil.rmtree(self.exp_path_xval)
 
-        os.makedirs(self.exp_path_xval)
+        skip = self.maybe_create_run_or_abort(self.exp_path_xval)
+        if skip:
+            return
 
         study = self.new_study(db_path=self.db_path_xval, is_tune=False)
         study.optimize(self.get_objective(is_tune=False))
         self.plot_xval_cdf()
+        self.summarize_xval()
+
+    def maybe_create_run_or_abort(self, path: str) -> bool:
+        if os.path.exists(path):
+            if self.overwrite:
+                logger.warning(f'removing existing run as overwrite=True: `{path}`')
+                shutil.rmtree(path)
+            else:
+                logger.warning(f'path exists and overwrite is False, skipping: `{path}`')
+                return True
+        else:
+            logger.warning(f'creating new run at: `{path}`')
+
+        os.makedirs(path)
+
+        return False
 
     @staticmethod
     def get_best_config_and_ckpt(study: optuna.Study) -> tuple[str, str]:
@@ -395,18 +410,21 @@ class Tuner(object):
         return configs_and_ckpts
 
     def summarize_tuning(self) -> None:
-        study_summary(study_path=self.db_path_tune, study_name=self.model)
+        study_summary(study_path=self.db_path_tune, study_name=self.model, is_xval=False)
+
+    def summarize_xval(self) -> None:
+        study_summary(study_path=self.db_path_xval, study_name=self.model, is_xval=True)
 
     @staticmethod
-    def get_test_slice(cli: 'MyLightningCLI') -> slice:
+    def get_test_slice(cli: 'MyLightningCLI') -> list[str]:
         try:
-            test_range = cli.config['data']['init_args']['test_date_slice']
+            test_range = cli.config['data']['init_args']['test_tranges']
         except KeyError as e:
             raise KeyError(
-                'could not infer test set time range from config at `data.init_args.test_date_slice`.'
+                'could not infer test set time range from config at `data.init_args.test_tranges`.'
             )
 
-        return slice(*test_range)    
+        return test_range   
 
     def plot_xval_cdf(self) -> None:
         for target in self.targets:
@@ -416,5 +434,5 @@ class Tuner(object):
                 mod_name=f'{target}_mod',
                 ref_name=f'{target}_prevah',
                 save_path=os.path.join(self.exp_path_xval, f'xval_perf_{target}.png'),
-                subset={'time': self.test_time_slice}
+                time_slices=self.test_time_slice,
             )

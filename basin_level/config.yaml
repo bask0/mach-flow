@@ -6,7 +6,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: 'val_loss'
-        patience: 15
+        patience: 20
         min_delta: 0.0
         mode: 'min'
     - class_path: lightning.pytorch.callbacks.TQDMProgressBar
@@ -22,6 +22,7 @@ trainer:
   gradient_clip_val: 1.0
   fast_dev_run: false
   max_steps: -1
+  max_epochs: -1
   overfit_batches: 0.0
   check_val_every_n_epoch: 1
   accumulate_grad_batches: 1
@@ -39,25 +40,31 @@ data:
     stat_features:
     - 'area'
     train_window_size: 730
-    window_min_count: 1
-    train_num_samples_per_epoch: 10
+    window_min_count: 30
+    train_num_samples_per_epoch: 30
     warmup_size: 365
     drop_all_nan_stations: true
     num_cv_folds: 8
     fold_nr: 0
-    train_date_slice:
-    - "1961-01-01"
-    - "2006-12-31"
-    valid_date_slice:
-    - "2007-01-01"
-    - "2011-12-31"
-    test_date_slice:
-    - "2012-01-01"
-    - "2023-04-30"
-    predict_date_slice:
-    - "1961-01-01"
-    - "2023-04-30"
-    batch_size: 10
+    use_additional_basins_as_training: false
+    train_tranges:
+    - "1961,1992"
+    - "2002,2013"
+    valid_tranges:
+    - "1993,1994"
+    - "2000,2001"
+    - "2014,2015"
+    - "2021,2023"
+    test_tranges:
+    - "1995,1999"
+    - "2016,2020"
+    predict_tslice:
+    - "1961"
+    - "2023"
+    norm_features: true
+    norm_stat_features: true
+    norm_targets: true
+    batch_size: 32
     num_workers: 4
     seed: 19
 optimizer:
@@ -67,4 +74,4 @@ optimizer:
     weight_decay: 0.01
 criterion:
   name: l2
-  log_transform: false
+  sqrt_transform: false
