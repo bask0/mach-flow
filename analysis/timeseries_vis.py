@@ -77,10 +77,10 @@ ax.set_xticklabels([])
 fig.savefig(PLOT_PATH_ALT / 'catchment_timesplit.png', dpi=600, transparent=False, bbox_inches='tight', pad_inches=0)
 
 catchments = {
-    'CHFO-0181': 'Murg–Frauenfeld\nRain dominated',
-    'CHFO-0190': 'Aabach-Hitzkirch\nLake dominated',
-    'CHFO-0112': 'Plessur-Chur\nSnow dominated',
-    'CHFO-0126': 'Simme-Oberried/Lenk\nGlacier dominated',
+    'CHFO-0181': 'Murg-Frauenfeld\nID: 2386\nRain dominated',
+    'CHFO-0190': 'Aabach-Hitzkirch, Richensee\nID: 2416\nLake dominated',
+    'CHFO-0112': 'Plessur-Chur\nID: 2185\nSnow dominated',
+    'CHFO-0126': 'Simme-Oberried/Lenk\nID: 2219\nGlacier dominated',
 }
 
 fig, axes = plt.subplots(
@@ -134,7 +134,7 @@ for s, (station_id, station_desc) in enumerate(catchments.items()):
         if i == 0:
             ax.spines[['right', 'top']].set_visible(False)
             ax.set_ylabel('Q (mm d$^{-1}$)')
-            ax.text(0.01, 0.95, f'{["a)", "b)", "c)", "d)"][s]}{station_id}\n{station_desc}', ha='left', va='top', transform=ax.transAxes)
+            ax.text(0.01, 0.95, f'{["a)", "b)", "c)", "d)"][s]}{station_desc}', ha='left', va='top', transform=ax.transAxes)
          
         else:
             ax.spines[['right', 'top', 'left']].set_visible(False)
@@ -160,4 +160,4 @@ for s, (station_id, station_desc) in enumerate(catchments.items()):
 
 axes[0, 1].legend(frameon=False, loc=2, bbox_to_anchor=(0.15, 1.0))
 
-savefig(fig, path=PLOT_PATH / 'fig06.png')
+savefig(fig, path=PLOT_PATH / 'fig05.png')

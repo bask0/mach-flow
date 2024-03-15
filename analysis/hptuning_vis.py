@@ -44,6 +44,27 @@ def config_to_tune_path(df: pd.DataFrame) -> pd.DataFrame:
 
             df.loc[i, k] = v
 
+        summary_path = f'/mydata/machflow/basil/runs/basin_level/{config}/{model}/xval/fold_000/model_summary.txt'
+
+        if 'num_params' not in df.columns:
+            df['num_params'] = ''
+
+        with open(summary_path) as f:
+            for line in f:
+                if 'Trainable params' in line:
+                    num_params = line.split('Trainable params')[0].strip()
+                    if 'M' in num_params:
+                        num_params = float(num_params.split('M')[0].strip()) * 1000
+                    elif 'K' in num_params:
+                        num_params = float(num_params.split('K')[0].strip())
+                    else:
+                        raise ValueError('value is neither K nor M.')
+
+                    num_params = f'{num_params:6.0f} K'
+                    df.loc[i, ['num_params']] = num_params
+
+                    break
+
     return df
 
 
@@ -60,6 +81,7 @@ met_ds = compute_metrics(
 
 xval_df = met_ds.nse.to_dataframe().reset_index()
 xval_df = config_to_tune_path(xval_df)
+xval_df = xval_df.replace('none', 'area')
 
 xval_df_nice = xval_df.sort_values(by='nse', ascending=False).reset_index().drop(columns='index').rename(
     columns={
@@ -75,6 +97,7 @@ xval_df_tcn = xval_df_nice.loc[xval_df_nice.model=='TCN',:].drop(columns='model'
 nse_col = 'tab:gray'
 mod_col = 'tab:olive'
 opt_col = 'tab:pink'
+param_col = 'tab:cyan'
 
 col_props = {
     'NSE': nse_col,
@@ -87,6 +110,7 @@ col_props = {
     'lstm_layers': mod_col,
     'learning_rate':opt_col,
     'weight_decay': opt_col,
+    'num_params': param_col
 }
 
 fig, ax = plt.subplots(figsize=(8, 2))

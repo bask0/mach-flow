@@ -55,7 +55,7 @@ def run2label(run: str) -> str:
     PROPERTY2NAME = dict(
         staticall=r'S$_\mathrm{all}$',
         staticdred=r'S$_\mathrm{PCA}$',
-        allbasins=r'C$_\mathrm{307}$',
+        allbasins=r'C$_\mathrm{267}$',
         sqrttrans=r'T$_\mathrm{sqrt}$'
     )
 
@@ -323,11 +323,11 @@ def fix_label(label, ax, which):
         if which == 'x':
             ax.set_xlabel('Training\ncatchments')
             ax.set_xticks([0, 1])
-            ax.set_xticklabels([r'C$_\mathrm{98}$', r'C$_\mathrm{307}$'])
+            ax.set_xticklabels([r'C$_\mathrm{98}$', r'C$_\mathrm{267}$'])
         else:
             ax.set_ylabel('Training\ncatchments')
             ax.set_yticks([0, 1])
-            ax.set_yticklabels([r'C$_\mathrm{98}$', r'C$_\mathrm{307}$'])
+            ax.set_yticklabels([r'C$_\mathrm{98}$', r'C$_\mathrm{267}$'])
 
     if label == 'static':
         if which == 'x':
@@ -401,11 +401,11 @@ for c, cvar in enumerate(configs):
 fig.align_labels(axes)
 
 fig.subplots_adjust(right=0.8)
-cbar_ax = fig.add_axes([1.0, 0.25, 0.03, 0.62])
+cbar_ax = fig.add_axes((1.0, 0.25, 0.03, 0.62))
 # fig.colorbar(im, cax=cbar_ax)
 
 cbar = fig.colorbar(im0, cax=cbar_ax, extend='both', label='Relative NSE (-)')
 cbar.ax.set_yticks([-0.05, 0, 0.05])
 cbar.ax.yaxis.set_label_position('left')
 
-savefig(fig, path=PLOT_PATH / 'fig05.png')
+savefig(fig, path=PLOT_PATH / 'fig03.png')

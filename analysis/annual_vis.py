@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-import math
+import statsmodels.api as sm
 import xarray as xr
 import numpy as np
 from pathlib import Path
@@ -44,6 +44,7 @@ def resample_yearly(ds: xr.Dataset, min_frac_present: float = 0.01) -> xr.Datase
 
     return ds_yearly.compute()
 
+
 def merged_df(mod, prevah):
     x_mod = mod.to_dataframe().reset_index()
     x_mod['source'] = 'mod'
@@ -52,6 +53,31 @@ def merged_df(mod, prevah):
     x_both = pd.concat((x_mod, x_pre)).reset_index()
 
     return x_both
+
+
+def plot_linreg(x, y, color, ax, **kwargs):
+    sort_indices = np.argsort(x)
+    x = x[sort_indices]
+    y = y[sort_indices]
+
+    X = sm.add_constant(x)
+    ols_model = sm.OLS(y, X)
+    est = ols_model.fit()
+    out = est.conf_int(alpha=0.05, cols=None)
+
+    ax.scatter(x, y, color=color, zorder=101, **kwargs)
+    y_pred = est.predict(X)
+    x_pred = x
+    ax.plot(x_pred, y_pred, color=color, lw=1.3, zorder=100, ls='-')
+
+    pred = est.get_prediction(X).summary_frame()
+    ax.fill_between(x_pred, pred['mean_ci_lower'], pred['mean_ci_upper'],
+                    facecolor=color, edgecolor='none', alpha=0.4)
+    # ax.plot(x_pred, pred['mean_ci_lower'], color=color, lw=1., ls='--', zorder=99)
+    # ax.plot(x_pred, pred['mean_ci_upper'], color=color, lw=1., ls='--', zorder=99)
+
+    return est
+
 
 ds = load_xval_test_set(
     xval_dir='/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/',
@@ -73,19 +99,6 @@ BOX_PROPS = {
     'capprops':{'color': 'k'}
 }
 
-ds_yearly_diff = (ds_yearly.sel(time=TEST_SLICES[1]).mean('time') - ds_yearly.sel(time=TEST_SLICES[0]).mean('time')).compute()
-df_yearly_diff = ds_yearly_diff.to_dataframe().melt(ignore_index=False, var_name='source', value_name='delta').reset_index()
-df_yearly_diff_wide = ds_yearly_diff.to_dataframe().reset_index()
-
-yearly_corr_mod = df_yearly_diff_wide.corr(numeric_only=True).values[0, 1]
-yearly_corr_prevah = df_yearly_diff_wide.corr(numeric_only=True).values[0, 2]
-
-print(f'LSTM trend correlation: {yearly_corr_mod:0.2f}')
-print(f'PREVAH trend correlation: {yearly_corr_prevah:0.2f}')
-
-q0 = f'{TEST_SLICES[0].start}-{TEST_SLICES[0].stop}'
-q1 = f'{TEST_SLICES[1].start}-{TEST_SLICES[1].stop}'
-
 ds = load_xval_test_set(
     xval_dir='/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/',
     time=slice('1995', None))[runoff_vars].sel(tau=0.5).drop_vars('tau')
@@ -98,10 +111,16 @@ ds_yearly_tid['time'] = np.arange(len(ds_yearly_tid['time']))
 metric_labels = ['r (-)', 'bias (mm d$^{-1}$)']
 metrics = ['r', 'bias']
 
-fig, axes = plt.subplots(1, 3, figsize=(8, 2), gridspec_kw={'wspace': 0.6, 'width_ratios': [1, 1, 1.7]})
+ds_trends = load_xval_test_set(
+    xval_dir='/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/',
+    time=slice('1995', '2020'))[runoff_vars].sel(tau=0.5).drop_vars('tau')
 
-for ax in axes:
-    ax.spines[['right', 'top']].set_visible(False)
+ds_trends = get_masked_runoff(ds_trends)
+ds_trends = resample_yearly(ds_trends)
+
+ds_trends['time'] = np.arange(len(ds_trends['time']))
+
+fig, axes = plt.subplots(1, 3, figsize=(8, 2.5), gridspec_kw={'wspace': 0.2, 'width_ratios': [1, 1, 1.7]})
 
 # METRICS
 
@@ -120,41 +139,80 @@ for i, (metric_label, metric, ax) in enumerate(zip(metric_labels, metrics, axes[
     ax.set_ylabel(metric_label)
     ax.set_xticks([0, 1])
     ax.set_xticklabels([r'LSTM$_\mathrm{best}$', 'PREVAH'])
-    ax.set_xlabel('')
+    ax.set_xlabel('Model')
 
     if i == 1:
         ax.axhline(color='k', lw=1.0, ls=':', zorder=-1)
 
-# Q diff
+ax = axes[-1]
 
-ax = axes[2]
+pf = ds_trends.polyfit(dim='time', deg=1).sel(degree=1)
+pf_obs = pf.Qmm_polyfit_coefficients
+pf_mod = pf.Qmm_mod_polyfit_coefficients
+pf_prevah = pf.Qmm_prevah_polyfit_coefficients
 
-sns.boxplot(
-    data=df_yearly_diff,
-    x='source',
-    y='delta',
-    hue='source',
-    showfliers=False,
-    ax=ax,
-    width=0.6,
-    color='w',
-    palette={'Qmm': 'w', 'Qmm_mod': 'tab:red', 'Qmm_prevah': '0.5'},
-    **BOX_PROPS)
+est_mod = plot_linreg(
+    x=pf_obs.values, y=pf_mod.values,
+    color='tab:red', ax=ax, s=5, label='LSTM', facecolor='tab:red', edgecolor='k', lw=0.3)
+est_prevah = plot_linreg(
+    x=pf_obs.values, y=pf_prevah.values,
+    color='0.4', ax=ax, s=5, label='PREVAH', facecolor='0.4', edgecolor='k', lw=0.3)
 
-ax.axhline(color='k', lw=1.0, ls=':', zorder=-1)
-ax.set_xticks([0, 1, 2])
-ax.set_xticklabels(['Observed', r'LSTM$_\mathrm{best}$', 'PREVAH'])
-ax.set_ylabel(f'$\Delta Q = \\bar{{Q}}_2 - \\bar{{Q}}_1$ (mm d$^-1$)')
-ax.set_xlabel('')
-ax.spines[['right', 'top']].set_visible(False)
+ax.text(0.01, 0.90,
+    f'LSTM (r={np.sqrt(est_mod.rsquared):0.2f}): y={est_mod.params[0]:0.2f} + {est_mod.params[1]:0.2f}x',
+        ha='left', va='top', transform=ax.transAxes, color='tab:red', size=7)
+ax.text(0.01, 0.82,
+    f'PREVAH (r={np.sqrt(est_prevah.rsquared):0.2f}): y={est_prevah.params[0]:0.2f} + {est_prevah.params[1]:0.2f}x',
+        ha='left', va='top', transform=ax.transAxes, color='k', size=7)
 
+xmin, xmax = pf_obs.quantile([0, 1])
+ymin0, ymax0 = pf_mod.quantile([0, 1])
+ymin1, ymax1 = pf_mod.quantile([0, 1])
+ymin = min(ymin0, ymin1)
+ymax = max(ymax0, ymax1)
 
+ax.plot([xmin, xmax], [xmin, xmax], color='k', lw=1.0, ls='--', zorder=-1)
 
-for axes_ in axes.T:
-    fig.align_ylabels(axes_)
+extra_f = 0.05
+xrng = (xmax - xmin) * extra_f
+xmin -= xrng
+xmax += xrng
+yrng = (ymax - ymin) * extra_f
+ymin -= yrng
+ymax += yrng
+
+ax.set_xlim(xmin, xmax)
+ax.set_ylim(ymin, ymax)
+
+ax.axvline(0, color='k', lw=1.0, ls=':', zorder=-1)
+ax.axhline(0, color='k', lw=1.0, ls=':', zorder=-1)
+ax.set_xlabel('Observed trends (mm y$^{-2}$)')
+ax.set_ylabel('Simulated trends (mm y$^{-2}$)')
+
+ax.yaxis.tick_right()
+ax.yaxis.set_label_position("right")
+
+for ax in axes[:-1]:
+    ax.spines[['right', 'top']].set_visible(False)
+axes[-1].spines[['top', 'left']].set_visible(False)
 
 for i, ax in enumerate(axes.flat):
     ax.text(0.01, 0.99, ['a)', 'b)', 'c)'][i], ha='left', va='top', transform=ax.transAxes)
 
+# Print trend comparison:
 
-savefig(fig, path=PLOT_PATH / 'fig07.png')
+x = pf_obs.values
+y = pf_mod.values - pf_prevah.values
+
+sort_indices = np.argsort(x)
+x = x[sort_indices]
+y = y[sort_indices]
+
+X = sm.add_constant(x)
+ols_model = sm.OLS(y, X)
+est = ols_model.fit()
+out = est.conf_int(alpha=0.05, cols=None)
+
+print(est.summary())
+
+savefig(fig, path=PLOT_PATH / 'fig06.png')
