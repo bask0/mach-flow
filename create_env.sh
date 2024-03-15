@@ -23,7 +23,7 @@ conda create --yes --name $ENVNAME python=3.10 \
     pytorch torchvision torchaudio pytorch-cuda=12.1 pytorch-lightning \
     numpy scikit-learn optuna \
     pandas xarray dask netcdf4 zarr geopandas \
-    matplotlib seaborn cartopy plotly \
+    matplotlib seaborn cartopy plotly contextily \
     jupyterlab nodejs pymysql \
     pvlib-python \
     imagemagick \
