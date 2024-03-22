@@ -175,11 +175,11 @@ for i, metric in enumerate(metrics):
                 **annot_kwargs)
 
         if metric == 'nse':
-            mname = 'NSE'
+            mname = 'NSE (-)'
         elif metric == 'bias2':
             mname = 'Squared bias'
         elif metric == 'varerr':
-            mname = 'Variance error'
+            mname = 'Variance error\n(mm$^2$ d$^{-2}$)'
         elif metric == 'phaseerr':
             mname = 'Phase error'
         else:
@@ -204,7 +204,7 @@ for i, metric in enumerate(metrics):
             [handle_list[idx] for idx in order],
             [label_list[idx] for idx in order],
             frameon=False,
-            fontsize=11,
+            fontsize=9,
             loc='upper left',
             bbox_to_anchor=(0.1, 0.9))
 

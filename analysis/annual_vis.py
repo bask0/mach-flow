@@ -68,7 +68,7 @@ def plot_linreg(x, y, color, ax, **kwargs):
     ax.scatter(x, y, color=color, zorder=101, **kwargs)
     y_pred = est.predict(X)
     x_pred = x
-    ax.plot(x_pred, y_pred, color=color, lw=1.3, zorder=100, ls='-')
+    ax.plot(x_pred, y_pred, color=color, lw=1.7, zorder=100, ls='-')
 
     pred = est.get_prediction(X).summary_frame()
     ax.fill_between(x_pred, pred['mean_ci_lower'], pred['mean_ci_upper'],
@@ -171,9 +171,9 @@ ymin1, ymax1 = pf_mod.quantile([0, 1])
 ymin = min(ymin0, ymin1)
 ymax = max(ymax0, ymax1)
 
-ax.plot([xmin, xmax], [xmin, xmax], color='k', lw=1.0, ls='--', zorder=-1)
+ax.plot([xmin, xmax], [xmin, xmax], color='k', lw=0.7, ls='--', zorder=-1)
 
-extra_f = 0.05
+extra_f = 0.12
 xrng = (xmax - xmin) * extra_f
 xmin -= xrng
 xmax += xrng
