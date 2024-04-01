@@ -10,8 +10,8 @@ from utils.metrics import compute_metrics
 
 load_default_mpl_config()
 
-PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/figures/')
-PLOT_PATH_ALT = Path('/mydata/machflow/basil/mach-flow/analysis/helper_figures/')
+PLOT_PATH = Path('./analysis/figures')
+PLOT_PATH_ALT = Path('./analysis/helper_figures/')
 runoff_vars = ['Qmm', 'Qmm_mod', 'Qmm_prevah']
 
 def merged_df(mod, prevah):
@@ -25,7 +25,7 @@ def merged_df(mod, prevah):
 
 
 xval_ds = load_xval_test_set(
-        xval_dir='/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/'
+        xval_dir='/Users/kraftb/Downloads/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/'
     ).isel(tau=0).drop_vars('tau')
 
 xval_ds = xval_ds.sortby(xval_ds.Qmm.notnull().sum('time'))
@@ -77,10 +77,10 @@ ax.set_xticklabels([])
 fig.savefig(PLOT_PATH_ALT / 'catchment_timesplit.png', dpi=600, transparent=False, bbox_inches='tight', pad_inches=0)
 
 catchments = {
-    'CHFO-0181': 'Murg-Frauenfeld\nID: 2386\nRain dominated',
-    'CHFO-0190': 'Aabach-Hitzkirch, Richensee\nID: 2416\nLake dominated',
-    'CHFO-0112': 'Plessur-Chur\nID: 2185\nSnow dominated',
-    'CHFO-0126': 'Simme-Oberried/Lenk\nID: 2219\nGlacier dominated',
+    'CHFO-0181': 'Murg-Frauenfeld (ID: 2386), Rain dominated',
+    'CHFO-0190': 'Aabach-Hitzkirch, Richensee (ID: 2416), Lake dominated',
+    'CHFO-0112': 'Plessur-Chur (ID: 2185), Snow dominated',
+    'CHFO-0126': 'Simme-Oberried/Lenk (ID: 2219), Glacier dominated',
 }
 
 fig, axes = plt.subplots(
@@ -134,17 +134,22 @@ for s, (station_id, station_desc) in enumerate(catchments.items()):
         if i == 0:
             ax.spines[['right', 'top']].set_visible(False)
             ax.set_ylabel('Q (mm d$^{-1}$)')
-            ax.text(0.01, 0.95, f'{["a)", "b)", "c)", "d)"][s]}{station_desc}', ha='left', va='top', transform=ax.transAxes)
-         
+            ax.text(0.01, 0.99, f'{["a)", "b)", "c)", "d)"][s]} {station_desc}',
+                    ha='left', va='top', transform=ax.transAxes, size=9)
+
         else:
             ax.spines[['right', 'top', 'left']].set_visible(False)
             ax.tick_params('y', length=0, width=0, which='major')
 
 
         ax.text(
-            0.99, 0.95,
-            f'LSTM$_\mathrm{{best}}$ NSE:={nse_mod:0.2f}\nPREVAH NSE={nse_prevah:0.2f}',
-            ha='right', va='top', transform=ax.transAxes)
+            0.01 if i == 0 else 0.99,
+            0.8,
+            f'LSTM$_\mathrm{{best}}$ NSE={nse_mod:0.2f}\nPREVAH NSE={nse_prevah:0.2f}',
+            ha='left' if i == 0 else 'right',
+            va='top',
+            size=9,
+            transform=ax.transAxes, zorder=9999)
 
         ax.xaxis.set_major_formatter(
             mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))

@@ -9,7 +9,7 @@ from utils.plotting import load_default_mpl_config, savefig
 
 load_default_mpl_config()
 
-PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/figures/')
+PLOT_PATH = Path('./analysis/figures')
 
 
 def config_to_tune_path(df: pd.DataFrame) -> pd.DataFrame:
@@ -35,7 +35,7 @@ def config_to_tune_path(df: pd.DataFrame) -> pd.DataFrame:
         config = "_".join(s)
         model = el['model']
 
-        optuna_path = f'sqlite:////mydata/machflow/basil/runs/basin_level/{config}/{model}/tune/optuna.db'
+        optuna_path = f'sqlite:////Users/kraftb/Downloads/basin_level/{config}/{model}/tune/optuna.db'
         study = optuna.load_study(study_name=model, storage=optuna_path)
 
         for k, v in study.best_params.items():
@@ -44,7 +44,7 @@ def config_to_tune_path(df: pd.DataFrame) -> pd.DataFrame:
 
             df.loc[i, k] = v
 
-        summary_path = f'/mydata/machflow/basil/runs/basin_level/{config}/{model}/xval/fold_000/model_summary.txt'
+        summary_path = f'/Users/kraftb/Downloads/basin_level/{config}/{model}/xval/fold_000/model_summary.txt'
 
         if 'num_params' not in df.columns:
             df['num_params'] = ''
@@ -69,7 +69,7 @@ def config_to_tune_path(df: pd.DataFrame) -> pd.DataFrame:
 
 
 xval_ds = load_config_xval_test_set(
-    path='/mydata/machflow/basil/runs/basin_level/',
+    path='/Users/kraftb/Downloads/basin_level/',
     nonbool_kwords=['static'],
     time_slices=['1995,1999', '2016,2020']).drop_vars('tau')
 
@@ -89,29 +89,39 @@ xval_df_nice = xval_df.sort_values(by='nse', ascending=False).reset_index().drop
             'nse': 'NSE',
         }
     )
+xval_df_nice.index = xval_df_nice.index + 1
+xval_df_nice.index.name = 'Rank'
 xval_df_nice['NSE'] = [f'{val:0.2f}' for val in xval_df_nice['NSE']]
 
 xval_df_lstm = xval_df_nice.loc[xval_df_nice.model=='LSTM',:].drop(columns='model')
 xval_df_tcn = xval_df_nice.loc[xval_df_nice.model=='TCN',:].drop(columns='model')
 
+xval_df_lstm = xval_df_lstm.rename(columns={'lstm_layers': 'temp_layers'})
+xval_df_tcn = xval_df_tcn.rename(columns={'tcn_layers': 'temp_layers', 'tcn_kernel_size': 'kernel_size'})
+
 nse_col = 'tab:gray'
+setup_col = 'w'
 mod_col = 'tab:olive'
 opt_col = 'tab:pink'
 param_col = 'tab:cyan'
 
 col_props = {
     'NSE': nse_col,
-    'allbasins': mod_col,
-    'sqrttrans': mod_col,
-    'static': mod_col,
+    'allbasins': setup_col,
+    'sqrttrans': setup_col,
+    'static': setup_col,
     'model_dim': mod_col,
     'enc_dropout': mod_col,
     'fusion_method': mod_col,
-    'lstm_layers': mod_col,
-    'learning_rate':opt_col,
+    'temp_layers': mod_col,
+    'kernel_size': mod_col,
+    'learning_rate': opt_col,
     'weight_decay': opt_col,
     'num_params': param_col
 }
+
+col_props_tcn = col_props.copy()
+col_props.pop('kernel_size')
 
 fig, ax = plt.subplots(figsize=(8, 2))
 ax.set_axis_off()
@@ -120,14 +130,18 @@ tab = pd.plotting.table(
     ax=ax,
     data=xval_df_lstm[col_props.keys()],
     loc='center',
-    cellLoc='center',
+    cellLoc='right',
     colColours=list(col_props.values()),
     # edges='horizontal'
 )
 
+w, h = tab[0, 1].get_width(), tab[0, 1].get_height()
+tab.add_cell(0, -1, w, h, text=xval_df_lstm.index.name)
+
 tab.auto_set_font_size(False)
 tab.set_fontsize(8)
 tab.auto_set_column_width(col=list(range(len(xval_df_lstm[col_props.keys()].columns))))
+
 
 savefig(fig, PLOT_PATH / 'figA01.pdf')
 
@@ -136,15 +150,18 @@ ax.set_axis_off()
 
 tab = pd.plotting.table(
     ax=ax,
-    data=xval_df_tcn[col_props.keys()],
+    data=xval_df_tcn[col_props_tcn.keys()],
     loc='center',
     cellLoc='center',
-    colColours=list(col_props.values()),
+    colColours=list(col_props_tcn.values()),
     # edges='horizontal'
 )
 
+w, h = tab[0, 1].get_width(), tab[0, 1].get_height()
+tab.add_cell(0, -1, w, h, text=xval_df_tcn.index.name)
+
 tab.auto_set_font_size(False)
 tab.set_fontsize(8)
-tab.auto_set_column_width(col=list(range(len(xval_df_tcn[col_props.keys()].columns))))
+tab.auto_set_column_width(col=list(range(len(xval_df_tcn[col_props_tcn.keys()].columns))))
 
 savefig(fig, PLOT_PATH / 'figA02.pdf')
