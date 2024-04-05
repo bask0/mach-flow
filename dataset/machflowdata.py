@@ -404,10 +404,10 @@ class MachFlowDataModule(pl.LightningDataModule):
                 mask_where = np.argwhere(tmask.any('station').compute().values)
                 cut_start_time = tmask.time[
                         max(mask_where[0] - self.warmup_size, 0)
-                    ].dt.strftime('').item()
+                    ].dt.strftime('%d-%m-%Y').item()
                 cut_end_time = tmask.time[
                         mask_where[-1]
-                    ].dt.strftime('').item()
+                    ].dt.strftime('%d-%m-%Y').item()
 
                 ds = ds.sel(time=slice(cut_start_time, cut_end_time))
 
