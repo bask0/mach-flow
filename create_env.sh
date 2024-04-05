@@ -21,7 +21,7 @@ conda remove --yes --name $ENVNAME --all \
 # Create environment
 conda create --yes --name $ENVNAME python=3.10 \
     pytorch torchvision torchaudio lightning \
-    numpy scikit-learn optuna \
+    numpy scikit-learn optuna optuna-integration \
     pandas xarray dask netcdf4 zarr geopandas \
     matplotlib seaborn cartopy plotly contextily \
     jupyterlab nodejs pymysql \
