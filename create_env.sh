@@ -35,8 +35,8 @@ conda activate $ENVNAME \
     || { echo '>>> Activating environment failed.'; exit 1; }
 
 # Install pip packages
-pip install torch_geometric dask-labextension pyreadr tensorboard flake8 'jsonargparse[signatures]>=4.18.0' \
-    kaleido jupyterlab-optuna \
+pip install torch_geometric dask-labextension pyreadr tensorboard flake8 kaleido \
+    'jsonargparse[signatures]>=4.18.0' omegaconf jupyterlab-optuna \
     || { echo '>>> Installing pip packages failed.'; exit 1; }
 
 # Add mach-flow in editable mode
