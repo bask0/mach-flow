@@ -17,20 +17,12 @@ from utils.shapefiles import get_shapefile
 
 load_default_mpl_config()
 
-# PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/figures/')
-
-# ds = load_xval(
-#     xval_dir='/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/',
-#     sources=0).sel(time=slice('1962', '2023'))
-# prevah, _ = get_shapefile(source='prevah')
-
-PLOT_PATH = Path('./analysis/figures')
+PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/figures/')
 
 ds = load_xval(
-    xval_dir='/Users/kraftb/Downloads/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval',
+    xval_dir='/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/',
     sources=0).sel(time=slice('1962', '2023'))
-
-prevah, _ = get_shapefile(source='prevah', datapath='/Users/kraftb/Downloads/machflow_data')
+prevah, _ = get_shapefile(source='prevah')
 
 
 def add_data(

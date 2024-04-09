@@ -25,7 +25,7 @@ def merged_df(mod, prevah):
 
 
 xval_ds = load_xval_test_set(
-        xval_dir='/Users/kraftb/Downloads/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/'
+        xval_dir='/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/'
     ).isel(tau=0).drop_vars('tau')
 
 xval_ds = xval_ds.sortby(xval_ds.Qmm.notnull().sum('time'))
