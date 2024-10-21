@@ -3,6 +3,7 @@ import os
 import numpy as np 
 import matplotlib.pyplot as plt
 import xarray as xr
+from os import PathLike
 
 from dataset.machflowdata import MachFlowDataModule
 from utils.metrics import compute_metrics
@@ -25,7 +26,7 @@ OPTUNA_PLOTS_XVAL = [
 ]
 
 
-def study_plots(study: optuna.Study, out_dir: str, is_xval: bool = False):
+def study_plots(study: optuna.Study, out_dir: str | PathLike, is_xval: bool = False):
     if is_xval:
         optuna_plots =  OPTUNA_PLOTS_XVAL
     else:
@@ -48,7 +49,7 @@ def study_plots(study: optuna.Study, out_dir: str, is_xval: bool = False):
 
     create_html(dir=out_dir)
 
-def study_summary(study_path: str, study_name: str, is_xval: bool = False):
+def study_summary(study_path: str | PathLike, study_name: str, is_xval: bool = False):
 
     base_dir = os.path.dirname(study_path)
     plot_dir = os.path.join(base_dir, 'optuna_plots')
@@ -78,7 +79,7 @@ def plot_cdf(
         ds_ref: xr.Dataset | None = None,
         ours_name: str = 'ML (ours)',
         ref_name: str = 'PREVAH',
-        save_path: str | None = None,
+        save_path: str | PathLike | None = None,
         title_postfix: str = '',
         col: str = '#1E88E5',
         ref_col: str = '#D81B60') -> None:
@@ -207,7 +208,7 @@ def plot_cdf(
 
 
 def xval_station_metrics(
-        dir: str,
+        dir: str | PathLike,
         target: str = 'Qmm',
         benchmark: str | None = 'prevah',
         metrics: list[str] = ['bias', 'r', 'nse'],
@@ -269,7 +270,7 @@ class ModelColors(object):
 
 
 def plot_model_comp(
-        dir: str,
+        dir: str | PathLike,
         target: str = 'Qmm',
         ref: str = 'prevah',
         save_path: str | None = None,
@@ -395,7 +396,7 @@ def subset_to_label(subset: dict):
 
 
 def plot_xval_cdf(
-        xval_dir: str,
+        xval_dir: str | PathLike,
         obs_name: str = 'Qmm',
         mod_name: str = 'Qmm_mod',
         ref_name: str | None = 'Qmm_prevah',
@@ -487,13 +488,13 @@ from glob import glob
 import os
 
 
-def make_link(dir: str, plot: str) -> str:
+def make_link(dir: str | PathLike, plot: str) -> str:
     link = link_template.format(os.path.join(dir, plot + '.html'), os.path.join(dir, plot + '.png'), plot)
 
     return link
 
 
-def make_body(dir: str) -> str:
+def make_body(dir: str | PathLike) -> str:
     pattern = os.path.join(dir, '*.png')
     plots = [os.path.basename(plot.split('.png')[0]) for plot in glob(pattern)]
 
@@ -508,7 +509,6 @@ def make_body(dir: str) -> str:
     return combined
 
 
-def create_html(dir: str) -> None:
+def create_html(dir: str | PathLike) -> None:
     with open(os.path.join(dir, 'index.html'), 'w') as f:
         f.write(make_body(dir=dir))
-
