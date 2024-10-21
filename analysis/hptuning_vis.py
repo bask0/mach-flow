@@ -34,7 +34,7 @@ def config_to_tune_path(df: pd.DataFrame) -> pd.DataFrame:
         config = "_".join(s)
         model = el['model']
 
-        optuna_path = f'sqlite:///{paths["runs"]}{config}/{model}/tune/optuna.db'
+        optuna_path = f'sqlite:///{paths["runs"]}/{config}/{model}/tune/optuna.db'
         study = optuna.load_study(study_name=model, storage=optuna_path)
 
         for k, v in study.best_params.items():
@@ -43,7 +43,7 @@ def config_to_tune_path(df: pd.DataFrame) -> pd.DataFrame:
 
             df.loc[i, k] = v
 
-        summary_path = f'{paths["runs"]}{config}/{model}/xval/fold_000/model_summary.txt'
+        summary_path = f'{paths["runs"]}/{config}/{model}/xval/fold_000/model_summary.txt'
 
         if 'num_params' not in df.columns:
             df['num_params'] = ''
