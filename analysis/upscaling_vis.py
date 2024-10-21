@@ -1,11 +1,11 @@
 
 import geopandas as gpd
 import xarray as xr
-import matplotlib.pyplot as plt
 import matplotlib as mpl
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 from tqdm import tqdm
 import numpy as np
-import matplotlib.gridspec as gridspec
 import statsmodels.api as sm
 from scipy.ndimage import gaussian_filter1d
 
@@ -18,11 +18,11 @@ load_default_mpl_config()
 
 paths = get_path_dict()
 
-
 ds = load_xval(
     xval_dir=paths['runs'] / 'staticall_allbasins_sqrttrans/LSTM/xval/',
     sources=0).sel(time=slice('1962', '2023'))
 prevah, _ = get_shapefile(source='prevah', datapath=paths['data'])
+
 
 def add_data(
         da: xr.DataArray,
@@ -66,6 +66,7 @@ def plot_linreg(x, y, color, ax, **kwargs):
 
     return est
 
+
 def moving_average(a, n=3):
     ret = np.cumsum(a, dtype=float)
     ret[n:] = ret[n:] - ret[:-n]
@@ -85,7 +86,7 @@ def add_interval(ax, xdata, ydata, caps="  ", color='0.4'):
     return (line,(a0,a1))
 
 
-qmm_year = ds.Qmm_mod.resample(time='1YE').sum('time').median('cv').compute()
+qmm_year = ds.Qmm_mod.resample(time='1Y').sum('time').median('cv').compute()
 qmm_year_ref = qmm_year.sel(time=slice('1971', '2000')).mean('time').compute()
 qmm_year_ano = (qmm_year - qmm_year_ref).compute()
 
@@ -193,16 +194,11 @@ lax.text(0.1, 0.0, 'Kraft et al. (2024), HESS', va='bottom', ha='left', transfor
 
 savefig(fig, paths['figures'] / 'fig07.png', dpi=450)
 
-qmm_year_mod = ds.Qmm_mod.resample(time='1YE').sum('time', skipna=False).median('cv').compute()
-qmm_year_prevah = ds.Qmm_prevah.resample(time='1YE').sum('time', skipna=False).compute()
-
+qmm_year_mod = ds.Qmm_mod.resample(time='1Y').sum('time', skipna=False).median('cv').compute()
 qmm_year_abs_mod = (qmm_year_mod * ds.area).sum('station', skipna=False) / ds.area.sum()
-qmm_year_abs_prevah = (qmm_year_prevah * ds.area).sum('station', skipna=False) / ds.area.sum()
-
-qmm_year_ref = qmm_year_abs_mod.sel(time=slice('1971', '2000')).mean('time').compute()
-
-qmm_year_mod = qmm_year_abs_mod - qmm_year_ref
-qmm_year_prevah = qmm_year_abs_prevah - qmm_year_ref
+qmm_year_ref = qmm_year_abs_mod.sel(time=slice('1971', '2000'))
+qmm_ref_year_mn, qmm_ref_year_mx = (qmm_year_ref - qmm_year_ref.mean('time').compute()).quantile([0.1, 0.9]).values
+qmm_year_mod = qmm_year_abs_mod - qmm_year_ref.mean('time').compute()
 
 fig, ax = plt.subplots(figsize=(8, 4))
 
@@ -279,7 +275,7 @@ for s, season in enumerate([None, 'DJF', 'MAM', 'JJA', 'SON']):
     else:
         ds_s = ds
 
-    qmm_year = ds_s.Qmm_mod.resample(time='1YE').sum('time', skipna=False).compute()
+    qmm_year = ds_s.Qmm_mod.resample(time='1Y').sum('time', skipna=False).compute()
 
     if 'cv' in qmm_year.dims:
         qmm_year = qmm_year.median('cv')
