@@ -6,15 +6,14 @@ import contextily as cx
 
 from utils.plotting import savefig, load_default_mpl_config
 from utils.shapefiles import get_shapefile
+from config import get_path_dict
 
 load_default_mpl_config()
 
-PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/figures/')
+paths = get_path_dict()
 
-
-obs, obs_point = get_shapefile(source='obs')
-prevah, _ = get_shapefile(source='prevah')
-
+obs, obs_point = get_shapefile(source='obs', datapath=paths['data'])
+prevah, _ = get_shapefile(source='prevah', datapath=paths['data'])
 
 fig, ax = plt.subplots(figsize=(6, 4))
 
@@ -95,4 +94,4 @@ ax.text(790000, 96000, '20 km', va='top', ha='center', size=7)
 
 cx.add_basemap(ax, source='Esri.WorldTerrain', crs=prevah.crs, zoom=9, zorder=-10, attribution_size=5)
 
-savefig(fig, PLOT_PATH / 'fig01.png', tight=True)
+savefig(fig, paths['figures'] / 'fig01.png', tight=True)

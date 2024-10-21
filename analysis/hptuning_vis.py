@@ -6,8 +6,11 @@ from pathlib import Path
 from utils.data import load_config_xval_test_set
 from utils.metrics import compute_metrics
 from utils.plotting import load_default_mpl_config, savefig
+from config import get_path_dict
 
 load_default_mpl_config()
+
+paths = get_path_dict()
 
 PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/figures/')
 
@@ -129,7 +132,7 @@ tab.auto_set_font_size(False)
 tab.set_fontsize(8)
 tab.auto_set_column_width(col=list(range(len(xval_df_lstm[col_props.keys()].columns))))
 
-savefig(fig, PLOT_PATH / 'figA01.pdf')
+savefig(fig, PLOT_PATH / 'tabA01.pdf')
 
 fig, ax = plt.subplots(figsize=(8, 2))
 ax.set_axis_off()
@@ -147,4 +150,4 @@ tab.auto_set_font_size(False)
 tab.set_fontsize(8)
 tab.auto_set_column_width(col=list(range(len(xval_df_tcn[col_props.keys()].columns))))
 
-savefig(fig, PLOT_PATH / 'figA02.pdf')
+savefig(fig, PLOT_PATH / 'tabA02.pdf')

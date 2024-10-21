@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import pandas as pd
-from pathlib import Path
 import optuna
 import numpy as np
 from scipy.linalg import lstsq
@@ -10,11 +10,12 @@ from utils.data import load_config_xval_test_set
 from utils.analysis import xval_station_metrics, get_cdf
 from utils.plotting import load_default_mpl_config, savefig
 from utils.metrics import compute_metrics
-
+from config import get_path_dict
 
 load_default_mpl_config()
 
-PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/figures/')
+paths = get_path_dict()
+
 runoff_vars = ['Qmm', 'Qmm_mod', 'Qmm_prevah']
 
 def merged_df(mod, prevah):
@@ -28,7 +29,7 @@ def merged_df(mod, prevah):
     return x_both
 
 xval_ds = xval_station_metrics(
-    '/mydata/machflow/basil/runs/basin_level/',
+    dir=paths['runs'],
     metrics=['nse', 'bias2', 'varerr', 'phaseerr'],
     time_slices=['1995,1999', '2016,2020'])
 
@@ -114,7 +115,7 @@ for i, metric in enumerate(metrics):
         else:
             zorder = 8
             lw = 0.7
-            alpha = 0.6
+            alpha = 0.8
             add_annot = 0
             if run.startswith('TCN'):
                 # col = next(tcn_colors)
@@ -139,7 +140,7 @@ for i, metric in enumerate(metrics):
                 # label = f'CHRUN (best): {run2label(run)}'
 
         if i > 0:
-            lw = lw - 0.4
+            lw = lw - 0.3
 
         # CDF plots
         # ----------------
@@ -213,7 +214,7 @@ for i, metric in enumerate(metrics):
 
     ax.text(0.01, 0.99, ['a)', 'b)', 'c)', 'd)'][i], va='top', ha='left', transform=ax.transAxes)
 
-savefig(fig, path=PLOT_PATH / 'fig04.png')
+savefig(fig, path=paths['figures'] / 'fig03.png')
 
 def config_to_tune_path(df: pd.DataFrame) -> pd.DataFrame:
 
@@ -238,7 +239,7 @@ def config_to_tune_path(df: pd.DataFrame) -> pd.DataFrame:
         config = "_".join(s)
         model = el['model']
 
-        optuna_path = f'sqlite:///../../runs/basin_level/{config}/{model}/tune/optuna.db'
+        optuna_path = f'sqlite:///{paths["runs"]}{config}/{model}/tune/optuna.db'
         study = optuna.load_study(study_name=model, storage=optuna_path)
 
         for k, v in study.best_params.items():
@@ -251,7 +252,7 @@ def config_to_tune_path(df: pd.DataFrame) -> pd.DataFrame:
 
 
 xval_ds = load_config_xval_test_set(
-    path='/mydata/machflow/basil/runs/basin_level/',
+    path=paths['runs'],
     nonbool_kwords=['static'],
     time_slices=['1995,1999', '2016,2020']).drop_vars('tau')
 
@@ -268,8 +269,8 @@ xval_df = met_ds.nse.to_dataframe().reset_index().rename(columns={
 
 # xval_df = config_to_tune_path(xval_df)
 
-xval_df_lstm = xval_df.loc[xval_df.Model == 'LSTM', :]
-xval_df_tcn = xval_df.loc[xval_df.Model == 'TCN', :]
+xval_df_lstm = xval_df.loc[xval_df.Model == 'LSTM', :].copy()
+xval_df_tcn = xval_df.loc[xval_df.Model == 'TCN', :].copy()
 
 xval_df_lstm['nse'] -= xval_df_lstm['nse'].mean()
 xval_df_tcn['nse'] -= xval_df_tcn['nse'].mean()
@@ -352,7 +353,8 @@ def fix_label(label, ax, which):
 
 fig, axes = plt.subplots(len(configs), len(configs), figsize=(5, 4.6))
 
-cmap = plt.cm.get_cmap('bwr_r', 31)
+# cmap = plt.cm.get_cmap('bwr_r', 71)
+cmap = mpl.colormaps.get_cmap('bwr_r')
 
 vmin, vmax = np.quantile(np.concatenate((xval_df_lstm.nse, xval_df_tcn.nse)), [0.05, 0.95])
 vlim = max(np.abs(vmin), vmax)
@@ -405,7 +407,7 @@ cbar_ax = fig.add_axes((1.0, 0.25, 0.03, 0.62))
 # fig.colorbar(im, cax=cbar_ax)
 
 cbar = fig.colorbar(im0, cax=cbar_ax, extend='both', label='Relative NSE (-)')
-cbar.ax.set_yticks([-0.05, 0, 0.05])
+cbar.ax.set_yticks([-0.04, 0, 0.04])
 cbar.ax.yaxis.set_label_position('left')
 
-savefig(fig, path=PLOT_PATH / 'fig03.png')
+savefig(fig, path=paths['figures'] / 'figA01.png')

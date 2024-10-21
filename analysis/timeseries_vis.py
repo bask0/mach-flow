@@ -7,11 +7,12 @@ from pathlib import Path
 from utils.data import load_xval_test_set
 from utils.plotting import load_default_mpl_config, savefig
 from utils.metrics import compute_metrics
+from config import get_path_dict
 
 load_default_mpl_config()
 
-PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/figures/')
-PLOT_PATH_ALT = Path('/mydata/machflow/basil/mach-flow/analysis/helper_figures/')
+paths = get_path_dict()
+
 runoff_vars = ['Qmm', 'Qmm_mod', 'Qmm_prevah']
 
 def merged_df(mod, prevah):
@@ -25,7 +26,7 @@ def merged_df(mod, prevah):
 
 
 xval_ds = load_xval_test_set(
-        xval_dir='/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/'
+        xval_dir=paths['runs'] / 'staticall_allbasins_sqrttrans/LSTM/xval/'
     ).isel(tau=0).drop_vars('tau')
 
 xval_ds = xval_ds.sortby(xval_ds.Qmm.notnull().sum('time'))
@@ -74,7 +75,7 @@ ax.set_xticklabels([])
 
 #ax.axis('off')
 
-fig.savefig(PLOT_PATH_ALT / 'catchment_timesplit.png', dpi=600, transparent=False, bbox_inches='tight', pad_inches=0)
+fig.savefig(paths['figures_alt'] / 'catchment_timesplit.png', dpi=600, transparent=False, bbox_inches='tight', pad_inches=0)
 
 catchments = {
     'CHFO-0181': 'Murg-Frauenfeld\nID: 2386\nRain dominated',
@@ -160,4 +161,4 @@ for s, (station_id, station_desc) in enumerate(catchments.items()):
 
 axes[0, 1].legend(frameon=False, loc=2, bbox_to_anchor=(0.15, 1.0))
 
-savefig(fig, path=PLOT_PATH / 'fig05.png')
+savefig(fig, path=paths['figures'] / 'fig06.png')

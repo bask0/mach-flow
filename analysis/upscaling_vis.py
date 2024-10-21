@@ -12,15 +12,17 @@ from scipy.ndimage import gaussian_filter1d
 from utils.plotting import savefig, load_default_mpl_config
 from utils.data import load_xval
 from utils.shapefiles import get_shapefile
+from config import get_path_dict
 
 load_default_mpl_config()
 
-PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/figures/')
+paths = get_path_dict()
+
 
 ds = load_xval(
-    xval_dir='/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/',
+    xval_dir=paths['runs'] / 'staticall_allbasins_sqrttrans/LSTM/xval/',
     sources=0).sel(time=slice('1962', '2023'))
-prevah, _ = get_shapefile(source='prevah')
+prevah, _ = get_shapefile(source='prevah', datapath=paths['data'])
 
 def add_data(
         da: xr.DataArray,
@@ -70,7 +72,7 @@ def moving_average(a, n=3):
     return ret[n - 1:] / n
 
 
-qmm_year = ds.Qmm_mod.resample(time='1Y').sum('time').median('cv').compute()
+qmm_year = ds.Qmm_mod.resample(time='1YE').sum('time').median('cv').compute()
 qmm_year_ref = qmm_year.sel(time=slice('1971', '2000')).mean('time').compute()
 qmm_year_ano = (qmm_year - qmm_year_ref).compute()
 
@@ -176,10 +178,10 @@ lax = fig.add_subplot(gs[-2, -1])
 lax.axis('off')
 lax.text(0.1, 0.0, 'Kraft et al. (2024), HESS', va='bottom', ha='left', transform=lax.transAxes, size=8, rotation=90)
 
-savefig(fig, PLOT_PATH / 'fig07.png', dpi=450)
+savefig(fig, paths['figures'] / 'fig07.png', dpi=450)
 
-qmm_year_mod = ds.Qmm_mod.resample(time='1Y').sum('time', skipna=False).median('cv').compute()
-qmm_year_prevah = ds.Qmm_prevah.resample(time='1Y').sum('time', skipna=False).compute()
+qmm_year_mod = ds.Qmm_mod.resample(time='1YE').sum('time', skipna=False).median('cv').compute()
+qmm_year_prevah = ds.Qmm_prevah.resample(time='1YE').sum('time', skipna=False).compute()
 
 qmm_year_abs_mod = (qmm_year_mod * ds.area).sum('station', skipna=False) / ds.area.sum()
 qmm_year_abs_prevah = (qmm_year_prevah * ds.area).sum('station', skipna=False) / ds.area.sum()
@@ -304,7 +306,7 @@ ax.text(0.01, 0.99, f'b)\n$\mathrm{{Q_{{CH–RUN}}}} = {e.params[0]:0.2f} + {e.p
 
 ax.text(1.0, -0.25, 'Kraft et al. (2024), HESS', va='bottom', ha='right', transform=ax.transAxes, size=8)
 
-savefig(fig, PLOT_PATH / 'fig08.png', dpi=450)
+savefig(fig, paths['figures'] / 'fig08.png', dpi=450)
 
 
 fig = plt.figure(tight_layout=True, figsize=(10, 5))
@@ -320,7 +322,7 @@ for s, season in enumerate([None, 'DJF', 'MAM', 'JJA', 'SON']):
     else:
         ds_s = ds
 
-    qmm_year = ds_s.Qmm_mod.resample(time='1Y').sum('time', skipna=False).compute()
+    qmm_year = ds_s.Qmm_mod.resample(time='1YE').sum('time', skipna=False).compute()
 
     if 'cv' in qmm_year.dims:
         qmm_year = qmm_year.median('cv')
@@ -381,4 +383,4 @@ lax = fig.add_subplot(gs[-1, 0])
 lax.axis('off')
 lax.text(0.8, 0.2, 'Kraft et al. (2024), HESS', va='bottom', ha='right', transform=lax.transAxes, size=8, rotation=90)
 
-savefig(fig, PLOT_PATH / 'fig09.png', dpi=450)
+savefig(fig, paths['figures'] / 'fig09.png', dpi=450)

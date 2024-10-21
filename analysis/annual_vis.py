@@ -5,18 +5,18 @@ import pandas as pd
 import statsmodels.api as sm
 import xarray as xr
 import numpy as np
-from pathlib import Path
 from scipy.stats import theilslopes
 from scipy.stats.mstats import winsorize
 
 from utils.data import load_xval_test_set
 from utils.metrics import compute_metrics
 from utils.plotting import load_default_mpl_config, savefig
+from config import get_path_dict
 
 load_default_mpl_config()
 
-PLOT_PATH = Path('/net/argon/landclim/kraftb/machflow/mach-flow/analysis/figures/')
-RUNS_PATH = Path('/net/argon/landclim/kraftb/machflow/runs/')
+paths = get_path_dict()
+
 TEST_SLICES = [slice('1995', '1999'), slice('2016', '2020')]
 runoff_vars = ['Qmm', 'Qmm_mod', 'Qmm_prevah']
 
@@ -39,9 +39,9 @@ def get_masked_runoff(ds: xr.Dataset, kw: str = 'Qmm') -> xr.Dataset:
 
 
 def resample_yearly(ds: xr.Dataset, min_frac_present: float = 0.01) -> xr.Dataset:
-    ds_yearly = ds.resample(time='1Y').mean()
-    ds_yearly_valid = ds.notnull().resample(time='1Y').sum()
-    ds_yearly_count = ds.resample(time='1Y').count()
+    ds_yearly = ds.resample(time='1YE').mean()
+    ds_yearly_valid = ds.notnull().resample(time='1YE').sum()
+    ds_yearly_count = ds.resample(time='1YE').count()
 
     ds_yearly = ds_yearly.where(ds_yearly_valid / ds_yearly_count > min_frac_present)
 
@@ -102,7 +102,7 @@ def plot_linreg(x, y, color, ax, **kwargs):
 
 
 ds = load_xval_test_set(
-    xval_dir=RUNS_PATH / 'staticall_allbasins_sqrttrans/LSTM/xval/',
+    xval_dir=paths['runs'] / 'staticall_allbasins_sqrttrans/LSTM/xval/',
     time_slices=[
         f'{TEST_SLICES[0].start},{TEST_SLICES[0].stop}',
         f'{TEST_SLICES[1].start},{TEST_SLICES[1].stop}'])[runoff_vars].sel(tau=0.5).drop_vars('tau')
@@ -115,14 +115,14 @@ x_prevah = compute_metrics(obs=ds_yearly.Qmm, mod=ds_yearly.Qmm_prevah, dim='tim
 x_both = merged_df(mod=x_mod, prevah=x_prevah)
 
 BOX_PROPS = {
-    'boxprops':{'edgecolor': 'k'},
+    'boxprops':{'edgecolor': 'k', 'alpha': 0.7},
     'medianprops':{'color': 'k'},
     'whiskerprops':{'color': 'k'},
     'capprops':{'color': 'k'}
 }
 
 ds = load_xval_test_set(
-    xval_dir=RUNS_PATH / 'staticall_allbasins_sqrttrans/LSTM/xval/',
+    xval_dir=paths['runs'] / 'staticall_allbasins_sqrttrans/LSTM/xval/',
     time=slice('1995', None))[runoff_vars].sel(tau=0.5).drop_vars('tau')
 ds = get_masked_runoff(ds)
 ds_yearly = resample_yearly(ds)
@@ -134,7 +134,7 @@ metric_labels = ['r (-)', 'bias (mm d$^{-1}$)']
 metrics = ['r', 'bias']
 
 ds_trends = load_xval_test_set(
-    xval_dir=RUNS_PATH / 'staticall_allbasins_sqrttrans/LSTM/xval/',
+    xval_dir=paths['runs'] / 'staticall_allbasins_sqrttrans/LSTM/xval/',
     time=slice('1995', '2020'))[runoff_vars].sel(tau=0.5).drop_vars('tau')
 
 ds_trends = get_masked_runoff(ds_trends)
@@ -197,7 +197,7 @@ ymin1, ymax1 = pf_mod.quantile([0, 1])
 ymin = min(ymin0, ymin1)
 ymax = max(ymax0, ymax1)
 
-ax.plot([xmin, xmax], [xmin, xmax], color='k', lw=0.7, ls='--', zorder=-1)
+ax.plot([-0.06, 0.06], [-0.06, 0.06], color='k', lw=0.7, ls='--', zorder=-1)
 
 extra_f = 0.1
 xrng = (xmax - xmin) * extra_f
@@ -207,7 +207,10 @@ yrng = (ymax - ymin) * extra_f
 ymin -= yrng
 ymax += yrng
 
-xmax = ymax = 0.14
+xmin = -0.07
+xmax = -xmin
+ymin = -0.07
+ymax = 0.15
 
 ax.set_xlim(xmin, xmax)
 ax.set_ylim(ymin, ymax)
@@ -236,6 +239,9 @@ sort_indices = np.argsort(x)
 x = x[sort_indices]
 y = y[sort_indices]
 
+# x = winsorize(x, limits=(0.05, 0.05))
+# y = winsorize(y, limits=(0.05, 0.05))
+
 X = sm.add_constant(x)
 ols_model = sm.OLS(y, X)
 est = ols_model.fit()
@@ -243,4 +249,4 @@ out = est.conf_int(alpha=0.05, cols=None)
 
 print(est.summary())
 
-savefig(fig, path=PLOT_PATH / 'fig06.png')
+savefig(fig, path=paths['figures'] / 'fig04.png')
