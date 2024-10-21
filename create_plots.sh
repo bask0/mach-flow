@@ -19,7 +19,7 @@ python analysis/timeseries_vis.py
 echo ">>> Upscaling visualization (fig07.png + fig08.png + fig09.png)."
 python analysis/upscaling_vis.py
 
-echo ">>> HP tuning visualization (figA01.pdf + figA02.pdf)."
+echo ">>> HP tuning visualization (tabA01.pdf + tabA02.pdf)."
 python analysis/hptuning_vis.py
 
 echo ">>> Done!"
