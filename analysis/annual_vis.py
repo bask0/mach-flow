@@ -6,6 +6,8 @@ import statsmodels.api as sm
 import xarray as xr
 import numpy as np
 from pathlib import Path
+from scipy.stats import theilslopes
+from scipy.stats.mstats import winsorize
 
 from utils.data import load_xval_test_set
 from utils.metrics import compute_metrics
@@ -13,7 +15,8 @@ from utils.plotting import load_default_mpl_config, savefig
 
 load_default_mpl_config()
 
-PLOT_PATH = Path('/mydata/machflow/basil/mach-flow/analysis/figures/')
+PLOT_PATH = Path('/net/argon/landclim/kraftb/machflow/mach-flow/analysis/figures/')
+RUNS_PATH = Path('/net/argon/landclim/kraftb/machflow/runs/')
 TEST_SLICES = [slice('1995', '1999'), slice('2016', '2020')]
 runoff_vars = ['Qmm', 'Qmm_mod', 'Qmm_prevah']
 
@@ -55,32 +58,51 @@ def merged_df(mod, prevah):
     return x_both
 
 
+def dfunc(x, y):
+    mask = np.isfinite(x) & np.isfinite(y)
+    x = x[mask]
+    y = y[mask]
+    return (theilslopes(x, y).slope, theilslopes(x, y).intercept)
+
+
+def robust_regression(x):
+    trend = xr.apply_ufunc(dfunc, x, x.time,
+        input_core_dims=[['time'], ['time']],
+        output_core_dims=[[], []],
+        output_dtypes=[float, float],
+        vectorize=True)
+    return trend
+
+
 def plot_linreg(x, y, color, ax, **kwargs):
     sort_indices = np.argsort(x)
-    x = x[sort_indices]
-    y = y[sort_indices]
+    x_o = x[sort_indices]
+    y_o = y[sort_indices]
 
+
+    x = winsorize(x_o, limits=(0.05, 0.05))
+    y = winsorize(y_o, limits=(0.05, 0.05))
+
+    X_o = sm.add_constant(x_o)
     X = sm.add_constant(x)
     ols_model = sm.OLS(y, X)
     est = ols_model.fit()
     out = est.conf_int(alpha=0.05, cols=None)
 
-    ax.scatter(x, y, color=color, zorder=101, **kwargs)
-    y_pred = est.predict(X)
-    x_pred = x
+    ax.scatter(x_o, y_o, color=color, zorder=101, **kwargs)
+    y_pred = est.predict(X_o)
+    x_pred = x_o
     ax.plot(x_pred, y_pred, color=color, lw=1.7, zorder=100, ls='-')
 
-    pred = est.get_prediction(X).summary_frame()
+    pred = est.get_prediction(X_o).summary_frame()
     ax.fill_between(x_pred, pred['mean_ci_lower'], pred['mean_ci_upper'],
                     facecolor=color, edgecolor='none', alpha=0.4)
-    # ax.plot(x_pred, pred['mean_ci_lower'], color=color, lw=1., ls='--', zorder=99)
-    # ax.plot(x_pred, pred['mean_ci_upper'], color=color, lw=1., ls='--', zorder=99)
 
     return est
 
 
 ds = load_xval_test_set(
-    xval_dir='/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/',
+    xval_dir=RUNS_PATH / 'staticall_allbasins_sqrttrans/LSTM/xval/',
     time_slices=[
         f'{TEST_SLICES[0].start},{TEST_SLICES[0].stop}',
         f'{TEST_SLICES[1].start},{TEST_SLICES[1].stop}'])[runoff_vars].sel(tau=0.5).drop_vars('tau')
@@ -100,7 +122,7 @@ BOX_PROPS = {
 }
 
 ds = load_xval_test_set(
-    xval_dir='/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/',
+    xval_dir=RUNS_PATH / 'staticall_allbasins_sqrttrans/LSTM/xval/',
     time=slice('1995', None))[runoff_vars].sel(tau=0.5).drop_vars('tau')
 ds = get_masked_runoff(ds)
 ds_yearly = resample_yearly(ds)
@@ -112,7 +134,7 @@ metric_labels = ['r (-)', 'bias (mm d$^{-1}$)']
 metrics = ['r', 'bias']
 
 ds_trends = load_xval_test_set(
-    xval_dir='/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/xval/',
+    xval_dir=RUNS_PATH / 'staticall_allbasins_sqrttrans/LSTM/xval/',
     time=slice('1995', '2020'))[runoff_vars].sel(tau=0.5).drop_vars('tau')
 
 ds_trends = get_masked_runoff(ds_trends)
@@ -120,7 +142,7 @@ ds_trends = resample_yearly(ds_trends)
 
 ds_trends['time'] = np.arange(len(ds_trends['time']))
 
-fig, axes = plt.subplots(1, 3, figsize=(8, 2.5), gridspec_kw={'wspace': 0.2, 'width_ratios': [1, 1, 1.7]})
+fig, axes = plt.subplots(1, 3, figsize=(8, 2.5), gridspec_kw={'wspace': 0.3, 'width_ratios': [1, 1, 1.5]})
 
 # METRICS
 
@@ -151,17 +173,21 @@ pf_obs = pf.Qmm_polyfit_coefficients
 pf_mod = pf.Qmm_mod_polyfit_coefficients
 pf_prevah = pf.Qmm_prevah_polyfit_coefficients
 
+obs_slope, obs_intercept = robust_regression(ds_trends.Qmm)
+mod_slope, mod_intercept = robust_regression(ds_trends.Qmm_mod)
+prevah_slope, prevah_intercept = robust_regression(ds_trends.Qmm_prevah)
+
 est_mod = plot_linreg(
-    x=pf_obs.values, y=pf_mod.values,
+    x=obs_slope.values, y=mod_slope.values,
     color='tab:red', ax=ax, s=5, label='LSTM', facecolor='tab:red', edgecolor='k', lw=0.3)
 est_prevah = plot_linreg(
-    x=pf_obs.values, y=pf_prevah.values,
+    x=obs_slope.values, y=prevah_slope.values,
     color='0.4', ax=ax, s=5, label='PREVAH', facecolor='0.4', edgecolor='k', lw=0.3)
 
-ax.text(0.01, 0.90,
+ax.text(0.01, 0.91,
     f'LSTM (r={np.sqrt(est_mod.rsquared):0.2f}): y={est_mod.params[0]:0.2f} + {est_mod.params[1]:0.2f}x',
         ha='left', va='top', transform=ax.transAxes, color='tab:red', size=7)
-ax.text(0.01, 0.82,
+ax.text(0.01, 0.83,
     f'PREVAH (r={np.sqrt(est_prevah.rsquared):0.2f}): y={est_prevah.params[0]:0.2f} + {est_prevah.params[1]:0.2f}x',
         ha='left', va='top', transform=ax.transAxes, color='k', size=7)
 
@@ -173,13 +199,15 @@ ymax = max(ymax0, ymax1)
 
 ax.plot([xmin, xmax], [xmin, xmax], color='k', lw=0.7, ls='--', zorder=-1)
 
-extra_f = 0.12
+extra_f = 0.1
 xrng = (xmax - xmin) * extra_f
 xmin -= xrng
 xmax += xrng
 yrng = (ymax - ymin) * extra_f
 ymin -= yrng
 ymax += yrng
+
+xmax = ymax = 0.14
 
 ax.set_xlim(xmin, xmax)
 ax.set_ylim(ymin, ymax)
