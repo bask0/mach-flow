@@ -5,7 +5,7 @@ import yaml
 import tempfile
 import optuna
 from warnings import warn
-from optuna.integration import PyTorchLightningPruningCallback
+from optuna_integration.pytorch_lightning  import PyTorchLightningPruningCallback
 from typing import Type, Callable, TypeVar, TYPE_CHECKING
 
 from models.base import LightningNet

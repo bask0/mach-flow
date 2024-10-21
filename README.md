@@ -10,7 +10,7 @@
 [![Project](https://img.shields.io/badge/MACHFlow-project-red.svg)](https://www.datascience.ch/projects/mach-flow)
 
 <figure>
-  <img src="./analysis/figures/fig08.png" alt="CH-RUN" style="width:70%">
+  <img src="./analysis/figures/fig07.png" alt="CH-RUN" style="width:70%">
   <figcaption></br>Fig. 8 from Kraft et al. (in prep.): Spatially contiguous reconstruction of runoff from 1962 to 2023. The maps represent the yearly catchment-level ruoff quantiles relative to the reference period (1971 to 2000) empirical distribution. The bottom bars show the decadal deviation in mm y−1 of the national-
 level runoff relative to the reference period.</figcaption>
 </figure>
@@ -59,8 +59,6 @@ Create figures:
 # Create figures.  
 bash create_plots.sh
 ```
-
-
 
 ### Citation   
 ```

@@ -2,7 +2,7 @@
 import geopandas as gpd
 import xarray as xr
 import matplotlib.pyplot as plt
-from pathlib import Path
+import matplotlib as mpl
 from tqdm import tqdm
 import numpy as np
 import matplotlib.gridspec as gridspec
@@ -70,6 +70,19 @@ def moving_average(a, n=3):
     ret = np.cumsum(a, dtype=float)
     ret[n:] = ret[n:] - ret[:-n]
     return ret[n - 1:] / n
+
+
+def add_interval(ax, xdata, ydata, caps="  ", color='0.4'):
+    line = ax.add_line(mpl.lines.Line2D(xdata, ydata, color=color, solid_capstyle='butt'))
+    anno_args = {
+        'ha': 'center',
+        'va': 'center',
+        'size': 12,
+        'color': line.get_color()
+    }
+    a0 = ax.annotate(caps[0], xy=(xdata[0], ydata[0]), **anno_args)
+    a1 = ax.annotate(caps[1], xy=(xdata[1], ydata[1]), **anno_args)
+    return (line,(a0,a1))
 
 
 qmm_year = ds.Qmm_mod.resample(time='1YE').sum('time').median('cv').compute()
@@ -191,55 +204,38 @@ qmm_year_ref = qmm_year_abs_mod.sel(time=slice('1971', '2000')).mean('time').com
 qmm_year_mod = qmm_year_abs_mod - qmm_year_ref
 qmm_year_prevah = qmm_year_abs_prevah - qmm_year_ref
 
-fig, axes = plt.subplots(1, 2, figsize=(12, 4), gridspec_kw={'width_ratios': [2, 1], 'wspace': 0.25})
+fig, ax = plt.subplots(figsize=(8, 4))
 
-for ax in axes:
-    ax.spines[['right', 'top']].set_visible(False)
-
-ax = axes[0]
+ax.spines[['right', 'top']].set_visible(False)
 
 cmap = plt.get_cmap('BrBG', 256)
 
-
+color_dry_line = cmap(0.05)
 color_dry = cmap(0.2)
 color_wet = cmap(0.8)
+color_wet_line = cmap(0.95)
 
 time = qmm_year_mod.time.dt.strftime('%Y').values.astype('int')
 
 ax.bar(time, qmm_year_mod.where(qmm_year_mod >= 0).values, color=color_wet, label='Year above average')
 ax.bar(time, qmm_year_mod.where(qmm_year_mod < 0).values, color=color_dry, label='Year below average')
 
-ax.scatter(
-    time, qmm_year_prevah.where(qmm_year_prevah >= 0).values, facecolor=color_wet, edgecolor='k', s=25,
-    label='Year above average ')
-ax.scatter(
-    time, qmm_year_prevah.where(qmm_year_prevah < 0).values, facecolor=color_dry, edgecolor='k', s=25,
-    label='Year below average ')
+ax.axhline(qmm_ref_year_mn, color=color_dry_line, ls='--', lw=1.0)
+ax.axhline(qmm_ref_year_mx, color=color_wet_line, ls='--', lw=1.0)
+
+ax.text((1970.5 + 2000.5)/2, qmm_ref_year_mn - 5, 'Q$_{0.1}$', va='top', ha='center', size=9, color=color_dry_line)
+ax.text((1970.5 + 2000.5)/2, qmm_ref_year_mx + 5, 'Q$_{0.9}$', va='bottom', ha='center', size=9, color=color_wet_line)
 
 ax.set_xticks(time[::5])
 
-n = 5
-n_cut = int((n - 1) / 2)
-
 ma_mod = gaussian_filter1d(qmm_year_mod.values, 2)
-
-qmm_year_prevah_subset = qmm_year_prevah.sel(time=slice('1981', '2022'))
-ma_prevah = gaussian_filter1d(qmm_year_prevah_subset.values, 2)
-time_prevah = qmm_year_prevah_subset.time.dt.strftime('%Y').values.astype('int')
-
-# plot_linreg(x=time.astype('float'), y=qmm_year_mod.values, ax=ax, color='tab:red', lw=1.3, ls='-', label='Linear trend ')
-# plot_linreg(x=time_prevah.astype('float'), y=qmm_year_prevah_subset.values, ax=ax, color='0.4', lw=1.3, ls='-', label='Linear trend')
-
-
-ax.plot(time, ma_mod, lw=2.0, color='tab:red', ls='-', label='Trend (low-pass filter) ')
-ax.plot(time_prevah, ma_prevah, lw=2.0, color='0.4', ls='-', label='Trend (low-pass filter)')
+ax.plot(time, ma_mod, lw=1.6, color='tab:red', ls='-', label='Trend (low-pass filter)')
 
 ax.set_ylabel('Annual Q dev. 1971-2000 (mm y$^{-1}$)')
 
 handles, labels = ax.get_legend_handles_labels()
 handle_list, label_list = [], []
-
-order = [4, 0,  5, 1, 2, 3]
+order = [1, 2, 0]
 
 for handle, label in zip(handles, labels):
     if label not in label_list:
@@ -249,62 +245,23 @@ for handle, label in zip(handles, labels):
 handles = [handle_list[idx] for idx in order]
 labels = [label_list[idx] for idx in order]
 
-ph = [plt.plot([],marker="", ls="")[0]] * 2
-handles = ph + handles
-labels = ['CH-RUN:', 'PREVAH:'] + labels
+add_interval(ax, (1970.5, 2000.5), (-240, -240), '||')
+ax.text((1970.5 + 2000.5)/2, -245, 'Reference period = 0', va='top', ha='center', size=9, color='0.4')
 
 ax.legend(
     handles,
     labels,
-    ncols=4,
+    ncols=3,
     frameon=False,
     fontsize=9,
     handlelength=2,
     columnspacing=0.7,
     loc='center',
-    bbox_to_anchor=(0.45, -0.2))
+    bbox_to_anchor=(0.45, -0.13))
 
-ax.text(0.01, 0.99, 'a)', va='top', ha='left', transform=ax.transAxes)
+ax.margins(x=0.01)
 
-ax = axes[1]
-
-ax.scatter(qmm_year_abs_prevah.values, qmm_year_abs_mod.values, edgecolor='k', facecolor='none', s=15)
-
-qmean = qmm_year_ref.item()
-
-ax.axhline(qmean, color='k', ls=':', lw=0.8)
-ax.axvline(qmean, color='k', ls=':', lw=0.8)
-
-ax.text(qmean, 620, r'$\leftarrow$ dry  ', ha='right', va='center', color=color_dry, weight='bold')
-ax.text(qmean, 620, r' wet $\rightarrow$', ha='left', va='center', color=color_wet, weight='bold')
-
-ax.text(620, qmean, r'$\leftarrow$ dry  ', va='top', ha='center', color=color_dry, rotation=90, weight='bold')
-ax.text(620, qmean, r' wet $\rightarrow$', va='bottom', ha='center', color=color_wet, rotation=90, weight='bold')
-
-lims = [
-    np.min([ax.get_xlim(), ax.get_ylim()]),  # min of both axes
-    np.max([ax.get_xlim(), ax.get_ylim()]),  # max of both axes
-]
-
-ax.plot(lims, lims, color='k', ls='--')
-# ax.set_aspect('equal')
-ax.set_xlim(lims)
-ax.set_ylim(lims)
-ax.set_ylabel('CH-RUN: Annual Q (mm y$^{-1}$)')
-ax.set_xlabel('PREVAH: Annual Q (mm y$^{-1}$)')
-
-e =plot_linreg(
-    x=qmm_year_abs_prevah.sel(time=slice('1981', '2022')).values,
-    y=qmm_year_abs_mod.sel(time=slice('1981', '2022')).values,
-    ax=ax, color='k', lw=1., ls='-', label='Linear fit')
-
-ax.text(0.01, 0.99, f'b)\n$\mathrm{{Q_{{CH–RUN}}}} = {e.params[0]:0.2f} + {e.params[1]:0.2f}\,\mathrm{{Q_{{PREVAH}}}}$', va='top', ha='left', transform=ax.transAxes)
-
-corr = np.corrcoef(qmm_year_abs_prevah.sel(time=slice('1981', '2022')).values, qmm_year_abs_mod.sel(time=slice('1981', '2022')).values)[0, 1]
-
-ax.text(0.01, 0.99, f'b)\n$\mathrm{{Q_{{CH–RUN}}}} = {e.params[0]:0.2f} + {e.params[1]:0.2f}\,\mathrm{{Q_{{PREVAH}}}}$\n$r={corr:0.2f}$', va='top', ha='left', transform=ax.transAxes)
-
-ax.text(1.0, -0.25, 'Kraft et al. (2024), HESS', va='bottom', ha='right', transform=ax.transAxes, size=8)
+ax.text(1.0, 0.01, 'Kraft et al. (2024), HESS', va='bottom', ha='right', transform=ax.transAxes, size=8)
 
 savefig(fig, paths['figures'] / 'fig08.png', dpi=450)
 

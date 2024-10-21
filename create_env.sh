@@ -20,8 +20,8 @@ conda remove --yes --name $ENVNAME --all \
 
 # Create environment
 conda create --yes --name $ENVNAME python=3.10 \
-    pytorch torchvision torchaudio pytorch-cuda=12.1 lightning \
-    numpy scikit-learn optuna \
+    pytorch torchvision torchaudio lightning \
+    numpy scikit-learn optuna optuna-integration \
     pandas xarray dask netcdf4 zarr geopandas \
     matplotlib seaborn cartopy plotly contextily \
     jupyterlab nodejs pymysql \
@@ -35,8 +35,8 @@ conda activate $ENVNAME \
     || { echo '>>> Activating environment failed.'; exit 1; }
 
 # Install pip packages
-pip install torch_geometric dask-labextension pyreadr tensorboard flake8 'jsonargparse[signatures]>=4.18.0' \
-    kaleido jupyterlab-optuna \
+pip install torch_geometric dask-labextension pyreadr tensorboard flake8 kaleido \
+    'jsonargparse[signatures]>=4.18.0' omegaconf jupyterlab-optuna \
     || { echo '>>> Installing pip packages failed.'; exit 1; }
 
 # Add mach-flow in editable mode
