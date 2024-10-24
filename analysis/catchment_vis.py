@@ -88,9 +88,16 @@ leg = ax.legend(handles=legend_elements, loc='upper left',  bbox_to_anchor=(0, 1
 leg.get_frame().set_edgecolor('k')
 leg.get_frame().set_linewidth(1)
 
-ax.plot([780000, 800000], [100000, 100000], color='k', solid_capstyle='butt', lw=3)
-ax.plot([790000, 799500], [100000, 100000], color='w', solid_capstyle='butt', lw=2)
-ax.text(790000, 96000, '20 km', va='top', ha='center', size=7)
+# ax.plot([780000, 800000], [100000, 100000], color='k', solid_capstyle='butt', lw=3)
+# ax.plot([790000, 799500], [100000, 100000], color='w', solid_capstyle='butt', lw=2)
+# ax.text(790000, 96000, '20 km', va='top', ha='center', size=7)
+
+base  = 770000
+total_len = 50000
+mid = base + 0.5 * total_len
+ax.plot([base, base + total_len], [100000, 100000], color='k', solid_capstyle='butt', lw=3)
+ax.plot([mid, base + total_len - 500], [100000, 100000], color='w', solid_capstyle='butt', lw=2)
+ax.text(mid, 94000, '50 km', va='top', ha='center', size=7)
 
 cx.add_basemap(ax, source='Esri.WorldTerrain', crs=prevah.crs, zoom=9, zorder=-10, attribution_size=5)
 

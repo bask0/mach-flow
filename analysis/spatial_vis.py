@@ -52,9 +52,12 @@ for i in range(2):
         ax.tick_params(left=False, labelleft=False, bottom=False, labelbottom=False)
         ax.margins(0.04)
 
-        ax.plot([780000, 800000], [100000, 100000], color='k', solid_capstyle='butt', lw=3)
-        ax.plot([790000, 799500], [100000, 100000], color='w', solid_capstyle='butt', lw=2)
-        ax.text(790000, 96000, '20 km', va='top', ha='center', size=7)
+        base  = 770000
+        total_len = 50000
+        mid = base + 0.5 * total_len
+        ax.plot([base, base + total_len], [100000, 100000], color='k', solid_capstyle='butt', lw=3)
+        ax.plot([mid, base + total_len - 500], [100000, 100000], color='w', solid_capstyle='butt', lw=2)
+        ax.text(mid, 94000, '50 km', va='top', ha='center', size=7)
 
         ax = obs.plot(
             ax=ax,
@@ -72,12 +75,11 @@ for i in range(2):
             lw=0.5,
         )
 
-        cx.add_basemap(ax, source='Esri.WorldTerrain', crs=prevah.crs, zoom=9, zorder=-10, attribution_size=3)
+        cx.add_basemap(ax, source='Esri.WorldTerrain', crs=prevah.crs, zoom=9, zorder=-10, attribution_size=4)
         txt = ax.texts[-1]
         txt.set_position([0.01,0.98])
         txt.set_ha('left')
         txt.set_va('top')
-
 
         if i == 0:
             varname = var
@@ -156,12 +158,13 @@ for i in range(2):
             Rectangle((bins_bounds[0], 0), bs, mn, ec='k', fc='none', lw=1))
         ax_inset.set_xlabel(label_, labelpad=0.)
 
-        #ax_inset.axvline(x.median(), color='k', lw=1.8)
-        #ax_inset.axvline(x.median(), color='w', lw=0.4, ymin=0.04, ymax=0.96)
         median = x.median()
-        ms = (mx - mn) * 0.1
-        ax_inset.plot([median, median], [mn + ms, mx - ms], color='k', lw=3)
-        ax_inset.plot([median, median], [mn + ms * 2, mx - ms * 2], color='w', lw=1.3)
+        # ms = (mx - mn) * 0.1
+        # ax_inset.plot([median, median], [mn + ms, mx - ms], color='k', lw=3)
+        # ax_inset.plot([median, median], [mn + ms * 2, mx - ms * 2], color='w', lw=1.3)
+        ms = (mx - mn) * 0.15
+        ax_inset.plot([median, median], [mn + ms, mx - ms], color='k', lw=4)
+        ax_inset.plot([median, median], [mn + ms * 2, mx - ms * 2], color='w', lw=2.3)
 
         if i == 0:
             ax_inset.xaxis.set_major_locator(loc)
@@ -183,4 +186,4 @@ for i in range(2):
                                     path_effects=[pe.withStroke(linewidth=3, foreground='w')],
                                     fc='w'))
 
-savefig(fig, paths['figures'] / 'fig05.png', tight=True)
+savefig(fig, paths['figures'] / 'fig04.png', tight=True)
