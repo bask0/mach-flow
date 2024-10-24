@@ -5,7 +5,7 @@ import pandas as pd
 import statsmodels.api as sm
 import xarray as xr
 import numpy as np
-from scipy.stats import theilslopes
+from scipy.stats import theilslopes, spearmanr
 from scipy.stats.mstats import winsorize
 
 from utils.data import load_xval_test_set
@@ -17,7 +17,8 @@ load_default_mpl_config()
 
 paths = get_path_dict()
 
-TEST_SLICES = [slice('1995', '1999'), slice('2016', '2020')]
+# TEST_SLICES = [slice('1995', '1999'), slice('2016', '2020')]
+TEST_SLICES = ['1995,2020']
 runoff_vars = ['Qmm', 'Qmm_mod', 'Qmm_prevah']
 
 def common_mask_da(*da):
@@ -39,7 +40,7 @@ def get_masked_runoff(ds: xr.Dataset, kw: str = 'Qmm') -> xr.Dataset:
 
 
 def resample_yearly(ds: xr.Dataset, min_frac_present: float = 0.01) -> xr.Dataset:
-    ds_yearly = ds.resample(time='1YE').mean()
+    ds_yearly = ds.resample(time='1YE').sum()
     ds_yearly_valid = ds.notnull().resample(time='1YE').sum()
     ds_yearly_count = ds.resample(time='1YE').count()
 
@@ -62,7 +63,8 @@ def dfunc(x, y):
     mask = np.isfinite(x) & np.isfinite(y)
     x = x[mask]
     y = y[mask]
-    return (theilslopes(x, y).slope, theilslopes(x, y).intercept)
+    res = theilslopes(x, y)
+    return (res.slope, res.intercept)
 
 
 def robust_regression(x):
@@ -74,38 +76,28 @@ def robust_regression(x):
     return trend
 
 
-def plot_linreg(x, y, color, ax, **kwargs):
-    sort_indices = np.argsort(x)
-    x_o = x[sort_indices]
-    y_o = y[sort_indices]
+def plot_linreg(x, y, text_y_pos, mod_name, color, ax, **kwargs):
 
+    rlm = sm.RLM(y, sm.add_constant(x.reshape(-1, 1)), M=sm.robust.norms.HuberT())
+    rlm_results = rlm.fit()
 
-    x = winsorize(x_o, limits=(0.05, 0.05))
-    y = winsorize(y_o, limits=(0.05, 0.05))
+    x_new = np.linspace(x.min(), x.max(), 10)
+    y_new = rlm_results.predict(sm.add_constant(x_new))
 
-    X_o = sm.add_constant(x_o)
-    X = sm.add_constant(x)
-    ols_model = sm.OLS(y, X)
-    est = ols_model.fit()
-    out = est.conf_int(alpha=0.05, cols=None)
+    ax.scatter(x, y, color=color, zorder=101, **kwargs)
+    ax.plot(x_new, y_new, color=color, lw=1.7, zorder=100, ls='-')
 
-    ax.scatter(x_o, y_o, color=color, zorder=101, **kwargs)
-    y_pred = est.predict(X_o)
-    x_pred = x_o
-    ax.plot(x_pred, y_pred, color=color, lw=1.7, zorder=100, ls='-')
+    r = spearmanr(x, y).statistic
 
-    pred = est.get_prediction(X_o).summary_frame()
-    ax.fill_between(x_pred, pred['mean_ci_lower'], pred['mean_ci_upper'],
-                    facecolor=color, edgecolor='none', alpha=0.4)
-
-    return est
+    s = f'{mod_name} ($\\rho$={r:0.2f}): y={rlm_results.params[0]:0.2f} + {rlm_results.params[1]:0.2f}x'
+    # f'{mod_name} (r={r:0.2f}): y={rlm_results.params[0]:0.2f} + {rlm_results.params[1]:0.2f}x'
+    ax.text(0.01, text_y_pos, s, ha='left', va='top', transform=ax.transAxes, color=color, size=7,
+        bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=0.1))
 
 
 ds = load_xval_test_set(
     xval_dir=paths['runs'] / 'staticall_allbasins_sqrttrans/LSTM/xval/',
-    time_slices=[
-        f'{TEST_SLICES[0].start},{TEST_SLICES[0].stop}',
-        f'{TEST_SLICES[1].start},{TEST_SLICES[1].stop}'])[runoff_vars].sel(tau=0.5).drop_vars('tau')
+    time_slices=TEST_SLICES)[runoff_vars].sel(tau=0.5).drop_vars('tau')
 ds = get_masked_runoff(ds)
 ds_yearly = resample_yearly(ds)
 
@@ -130,7 +122,7 @@ ds_yearly = resample_yearly(ds)
 ds_yearly_tid = ds_yearly.copy()
 ds_yearly_tid['time'] = np.arange(len(ds_yearly_tid['time']))
 
-metric_labels = ['r (-)', 'bias (mm d$^{-1}$)']
+metric_labels = ['r (-)', 'bias (mm y$^{-1}$)']
 metrics = ['r', 'bias']
 
 ds_trends = load_xval_test_set(
@@ -142,7 +134,7 @@ ds_trends = resample_yearly(ds_trends)
 
 ds_trends['time'] = np.arange(len(ds_trends['time']))
 
-fig, axes = plt.subplots(1, 3, figsize=(8, 2.5), gridspec_kw={'wspace': 0.3, 'width_ratios': [1, 1, 1.5]})
+fig, axes = plt.subplots(1, 3, figsize=(8, 2.5), gridspec_kw={'wspace': 0.3, 'width_ratios': [1, 1, 1.3]})
 
 # METRICS
 
@@ -164,40 +156,35 @@ for i, (metric_label, metric, ax) in enumerate(zip(metric_labels, metrics, axes[
     ax.set_xlabel('Model')
 
     if i == 1:
-        ax.axhline(color='k', lw=1.0, ls=':', zorder=-1)
+        ax.axhline(color='k', lw=1.0, ls=':', zorder=99)
 
 ax = axes[-1]
-
-pf = ds_trends.polyfit(dim='time', deg=1).sel(degree=1)
-pf_obs = pf.Qmm_polyfit_coefficients
-pf_mod = pf.Qmm_mod_polyfit_coefficients
-pf_prevah = pf.Qmm_prevah_polyfit_coefficients
 
 obs_slope, obs_intercept = robust_regression(ds_trends.Qmm)
 mod_slope, mod_intercept = robust_regression(ds_trends.Qmm_mod)
 prevah_slope, prevah_intercept = robust_regression(ds_trends.Qmm_prevah)
 
-est_mod = plot_linreg(
-    x=obs_slope.values, y=mod_slope.values,
-    color='tab:red', ax=ax, s=5, label='LSTM', facecolor='tab:red', edgecolor='k', lw=0.3)
-est_prevah = plot_linreg(
-    x=obs_slope.values, y=prevah_slope.values,
-    color='0.4', ax=ax, s=5, label='PREVAH', facecolor='0.4', edgecolor='k', lw=0.3)
+r_mod = plot_linreg(
+    x=obs_slope.values, y=mod_slope.values, mod_name='LSTM',
+    text_y_pos=0.91, color='tab:red', ax=ax, s=8, label='LSTM', facecolor='tab:red', edgecolor='k', lw=0.3, alpha=0.7)
+r_prevah = plot_linreg(
+    x=obs_slope.values, y=prevah_slope.values, mod_name='PREVAH',
+    text_y_pos=0.85, color='0.4', ax=ax, s=8, label='PREVAH', facecolor='0.4', edgecolor='k', lw=0.3, alpha=0.7)
 
-ax.text(0.01, 0.91,
-    f'LSTM (r={np.sqrt(est_mod.rsquared):0.2f}): y={est_mod.params[0]:0.2f} + {est_mod.params[1]:0.2f}x',
-        ha='left', va='top', transform=ax.transAxes, color='tab:red', size=7)
-ax.text(0.01, 0.83,
-    f'PREVAH (r={np.sqrt(est_prevah.rsquared):0.2f}): y={est_prevah.params[0]:0.2f} + {est_prevah.params[1]:0.2f}x',
-        ha='left', va='top', transform=ax.transAxes, color='k', size=7)
-
-xmin, xmax = pf_obs.quantile([0, 1])
-ymin0, ymax0 = pf_mod.quantile([0, 1])
-ymin1, ymax1 = pf_mod.quantile([0, 1])
+xmin, xmax = obs_slope.quantile([0, 1])
+ymin0, ymax0 = mod_slope.quantile([0, 1])
+ymin1, ymax1 = prevah_slope.quantile([0, 1])
 ymin = min(ymin0, ymin1)
 ymax = max(ymax0, ymax1)
 
-ax.plot([-0.06, 0.06], [-0.06, 0.06], color='k', lw=0.7, ls='--', zorder=-1)
+plt_min = max(xmin, ymin)
+plt_max = min(xmax, ymax)
+
+ax.plot([plt_min, plt_max], [plt_min, plt_max], ls='--', color='k')
+
+ax.text(plt_max - 0.03 * (xmax - xmin), plt_max, '1:1', va='center_baseline', ha='right', fontsize=7)
+
+# ax.plot([-0.06, 0.06], [-0.06, 0.06], color='k', lw=0.7, ls='--', zorder=-1)
 
 extra_f = 0.1
 xrng = (xmax - xmin) * extra_f
@@ -212,13 +199,13 @@ xmax = -xmin
 ymin = -0.07
 ymax = 0.15
 
-ax.set_xlim(xmin, xmax)
-ax.set_ylim(ymin, ymax)
+# ax.set_xlim(xmin, xmax)
+# ax.set_ylim(ymin, ymax)
 
 ax.axvline(0, color='k', lw=1.0, ls=':', zorder=-1)
 ax.axhline(0, color='k', lw=1.0, ls=':', zorder=-1)
-ax.set_xlabel('Observed trends (mm y$^{-2}$)')
-ax.set_ylabel('Simulated trends (mm y$^{-2}$)')
+ax.set_xlabel('Observed trends (mm y$^{-1}$)')
+ax.set_ylabel('Simulated trends (mm y$^{-1}$)')
 
 ax.yaxis.tick_right()
 ax.yaxis.set_label_position("right")
@@ -232,21 +219,13 @@ for i, ax in enumerate(axes.flat):
 
 # Print trend comparison:
 
-x = pf_obs.values
-y = pf_mod.values - pf_prevah.values
-
-sort_indices = np.argsort(x)
-x = x[sort_indices]
-y = y[sort_indices]
-
-# x = winsorize(x, limits=(0.05, 0.05))
-# y = winsorize(y, limits=(0.05, 0.05))
+x = obs_slope.values
+y = mod_slope.values - prevah_slope.values
 
 X = sm.add_constant(x)
 ols_model = sm.OLS(y, X)
 est = ols_model.fit()
-out = est.conf_int(alpha=0.05, cols=None)
 
 print(est.summary())
 
-savefig(fig, path=paths['figures'] / 'fig04.png')
+savefig(fig, path=paths['figures'] / 'fig05.png')
