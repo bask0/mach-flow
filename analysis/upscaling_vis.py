@@ -190,7 +190,7 @@ ax_dec.set_yticks([])
 
 lax = fig.add_subplot(gs[-2, -1])
 lax.axis('off')
-lax.text(0.1, 0.0, 'Kraft et al. (2024), HESS', va='bottom', ha='left', transform=lax.transAxes, size=8, rotation=90)
+lax.text(0.1, 0.0, 'Kraft et al. (2025), HESS', va='bottom', ha='left', transform=lax.transAxes, size=8, rotation=90)
 
 savefig(fig, paths['figures'] / 'fig07.png', dpi=450)
 
@@ -257,7 +257,7 @@ ax.legend(
 
 ax.margins(x=0.01)
 
-ax.text(1.0, 0.01, 'Kraft et al. (2024), HESS', va='bottom', ha='right', transform=ax.transAxes, size=8)
+ax.text(1.0, 0.01, 'Kraft et al. (2025), HESS', va='bottom', ha='right', transform=ax.transAxes, size=8)
 
 savefig(fig, paths['figures'] / 'fig08.png', dpi=450)
 
@@ -334,6 +334,6 @@ cb.ax.tick_params(labelsize=9)
 
 lax = fig.add_subplot(gs[-1, 0])
 lax.axis('off')
-lax.text(0.8, 0.2, 'Kraft et al. (2024), HESS', va='bottom', ha='right', transform=lax.transAxes, size=8, rotation=90)
+lax.text(0.8, 0.2, 'Kraft et al. (2025), HESS', va='bottom', ha='right', transform=lax.transAxes, size=8, rotation=90)
 
 savefig(fig, paths['figures'] / 'fig09.png', dpi=450)
