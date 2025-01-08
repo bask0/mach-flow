@@ -108,14 +108,14 @@ for i, metric in enumerate(metrics):
             col = 'k'
             style = '-'
             zorder = 10
-            lw = 1.3
+            lw = 1.4
             alpha = 1
             add_annot = 10
             label = 'PREVAH'
         else:
             zorder = 8
-            lw = 0.7
-            alpha = 0.8
+            lw = 0.6
+            alpha = 0.7
             add_annot = 0
             if run.startswith('TCN'):
                 # col = next(tcn_colors)
@@ -133,7 +133,7 @@ for i, metric in enumerate(metrics):
             if run == best_run:
                 # col = 'tab:green'
                 alpha = 1
-                lw = 1.3
+                lw = 1.4
                 zorder = 9
                 add_annot = 60
                 label = r'LSTM$_\mathrm{best}$'
