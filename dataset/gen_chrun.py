@@ -4,15 +4,18 @@ from pathlib import Path
 
 from utils.data import load_xval
 
-# BEST_MODEL_PATH = '/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/'
-SHAPEFILE_PATH = Path('/mydata/machflow/shared/data/RawFromMichael/prevah_307/shapefile/')
-BEST_MODEL_PATH = Path('/mydata/machflow/basil/runs/basin_level/staticall_allbasins_sqrttrans/LSTM/')
+# SHAPEFILE_PATH = Path('/mydata/machflow/shared/data/RawFromMichael/prevah_307/shapefile/')
+SHAPEFILE_PATH = Path('/net/argon/landclim/kraftb/machflow/data/prevah/shapefile/')
+BEST_MODEL_PATH = Path('/net/argon/landclim/kraftb/machflow/runs/staticall_allbasins_sqrttrans/LSTM/')
 BEST_MODEL_XVAL_PATH = BEST_MODEL_PATH / 'xval/'
-OUT_PATH = Path('/mydata/machflow/basil/runs/basin_level/CHRUN/')
+OUT_PATH = Path('/net/argon/landclim/kraftb/machflow/runs/CHRUN/')
 
 CHRUN_OUT_PATH = OUT_PATH / 'chrun.nc'
 CATCHMENTS_OUT_PATH = OUT_PATH / 'catchments/'
 README_OUT_PATH = OUT_PATH / 'readme.txt'
+
+REFERENCE = ('Kraft et al. (2025): CH-RUN: A deep-learning-based spatially contiguous runoff '
+             'reconstruction for Switzerland. Hydrol. Earth Syst. Sci.')
 
 if not os.path.exists(OUT_PATH):
     os.makedirs(OUT_PATH)
@@ -43,7 +46,7 @@ static_names = dict(
     grapes=29,
 )
 
-ds = load_xval(BEST_MODEL_XVAL_PATH, sources=0).median('cv').isel(tau=0).drop([
+ds = load_xval(BEST_MODEL_XVAL_PATH, sources=0).median('cv').isel(tau=0).drop_vars([
     'tau',
     'E',
     'Qmm',
@@ -57,16 +60,16 @@ ds = load_xval(BEST_MODEL_XVAL_PATH, sources=0).median('cv').isel(tau=0).drop([
     'cv_set',
     'folds'
 ]
-).sel(time=slice('1962', '2023'))
+).sel(time=slice('1962', '2023')).rename({'station': 'hru'})
 
 ds = ds.load()
 
 global_attrs = dict(
-    title='CH-RUN: A data-driven spatially contiguous runoff monitoring product for Switzerland',
+    title='CH-RUN: A deep-learning-based spatially contiguous runoff reconstruction for Switzerland',
     institution='IAC, ETH Zurich',
     source='CH-RUN',
     comment='Modeled runoff product (CH-RUN): Qmm_mod, PREVAH runoff: Qmm_prevah.',
-    references='INSERT HESS PAPER',
+    references=REFERENCE,
     version_number='1.0',
     contact='Basil Kraft (basilkraft@env.ethz.ch), Lukas Gudmundsson (lukas.gudmundsson@env.ethz.ch)'
 )
@@ -94,7 +97,7 @@ variable_attrs = {
     'Qmm_mod': dict(
         title='CH-RUN runoff',
         source='CH-RUN v1.0',
-        references='INSERT HESS PAPER',
+        references=REFERENCE,
         long_name='Runoff (CH-RUN)',
         units='mm d-1'
     ),
@@ -196,8 +199,8 @@ for k, v in static_names.items():
 
 
 df = gpd.read_file(SHAPEFILE_PATH)
-df['station'] = [f'HSU_{obj:03d}' for obj in df['OBJECTID']]
-df = df.drop(columns=['Shape_Leng', 'Shape_Area', 'OBJECTID']).set_index('station')
+df['hru'] = [f'HSU_{obj:03d}' for obj in df['OBJECTID']]
+df = df.drop(columns=['Shape_Leng', 'Shape_Area', 'OBJECTID']).set_index('hru')
 
 README = """
 CH-RUN V1 --- Kraft et al. (2024)
@@ -209,11 +212,11 @@ Datasets
 
 Usage
 -----------
-The catchments provided as shapefile can be linked with the NetCDF data via the 'station' field.
+The catchments provided as shapefile can be linked with the NetCDF data via the 'hru' field.
 
 References
 -----------
-Add HESS  reference.
+Kraft et al. (2025): CH-RUN: A deep-learning-based spatially contiguous runoff reconstruction for Switzerland. Hydrol. Earth Syst. Sci.'
 
 """
 
@@ -221,4 +224,3 @@ df.to_file(CATCHMENTS_OUT_PATH)
 ds.to_netcdf(CHRUN_OUT_PATH)
 with open(README_OUT_PATH, 'w') as f:
     f.write(README)
-
