@@ -122,7 +122,7 @@ if __name__ == '__main__':
     tuner = Tuner(
         sampler=sampler,
         pruner=pruner,
-        log_dir='/mydata/machflow/basil/runs'
+        log_dir='./runs'
         )
 
     tuner.tune(n_trials=60)
