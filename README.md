@@ -18,7 +18,7 @@
 
 <!--Change batch name and link to paper -->
 This repository contains the code for performing deep learning based reconstruction of runoff for Switzerland (Fig. 1).
-More details can be found in [this publication](https://egusphere.copernicus.org/preprints/2024/egusphere-2024-993/).
+More details can be found in [this publication](https://doi.org/10.5194/egusphere-2024-993).
 
 <div align="center">
 <figure>
@@ -70,7 +70,7 @@ bash create_plots.sh
 ```
 @article{kraft_chrun_2025,
   title={CH-RUN: a deep-learning-based spatially contiguous runoff reconstruction for Switzerland},
-  author={B. Kraft, W. Aeberhard, M. Schirmer, M. Zappa, S. I. Seneviratne and L. Gudmundsson},
+  author={B. Kraft, W. H. Aeberhard, M. Schirmer, M. Zappa, S. I. Seneviratne and L. Gudmundsson},
   journal={HESS},
   year={2025}
 }
