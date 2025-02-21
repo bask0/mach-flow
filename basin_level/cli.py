@@ -65,47 +65,6 @@ class TCNSearchSpace(SearchSpace):
         super().__init__(trial=trial, config=config)
 
 
-# class MHASearchSpace(SearchSpace):
-#     """Defines the search space for the multihead attention (MHA) model."""
-
-#     MODEL = MHA
-
-#     def __init__(self, trial: optuna.Trial) -> None:
-#         config = {
-#             'model': dict(
-#                 **get_enc_search_space(trial),
-#                 mha_heads=trial.suggest_categorical('mha_heads', [2, 4]),
-#                 mha_layers=trial.suggest_categorical('mha_layers', [1, 2, 3]),
-#                 mha_max_context=trial.suggest_categorical('mha_max_context', [50, 150, 250]),
-#                 mha_dropout=trial.suggest_categorical('mha_dropout', [0.0, 0.1, 0.2]),
-#             ),
-#             'optimizer': dict(
-#                 **get_optimizer_search_space(trial),
-#             )
-#         }
-#         super().__init__(trial=trial, config=config)
-
-class MHASearchSpace(SearchSpace):
-    """Defines the search space for the multihead attention (MHA) model."""
-
-    MODEL = MHA
-
-    def __init__(self, trial: optuna.Trial) -> None:
-        config = {
-            'model': dict(
-                **get_enc_search_space(trial),
-                mha_heads=trial.suggest_categorical('mha_heads', [2, 4]),
-                mha_layers=trial.suggest_categorical('mha_layers', [1]),
-                mha_max_context=trial.suggest_categorical('mha_max_context', [50]),
-                mha_dropout=trial.suggest_categorical('mha_dropout', [0.0, 0.1]),
-            ),
-            'optimizer': dict(
-                **get_optimizer_search_space(trial),
-            )
-        }
-        super().__init__(trial=trial, config=config)
-
-
 if __name__ == '__main__':
 
     pruner = optuna.pruners.HyperbandPruner(
