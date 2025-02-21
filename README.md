@@ -3,6 +3,7 @@
 # CH-RUN: A data-driven spatially contiguous</br>runoff monitoring product for Switzerland
 
 <!--Change batch name and link to paper -->
+[![DOI](https://zenodo.org/badge/715106189.svg)](https://doi.org/10.5281/zenodo.14904537)
 [![Paper](https://img.shields.io/badge/Paper-HESS%20(2025)-blue.svg)](https://doi.org/10.5194/egusphere-2024-993)
 [![Data](https://img.shields.io/badge/Data-Reconstruction-green.svg)](https://doi.org/10.3929/ethz-b-000714281)
 [![Project](https://img.shields.io/badge/Project-MACHFlow-red.svg)](https://www.datascience.ch/projects/mach-flow)
