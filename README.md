@@ -69,7 +69,7 @@ bash create_plots.sh
 
 ```
 @article{kraft_chrun_2025,
-  title={CH-RUN: A deep-learning-based spatially contiguous runoff reconstruction for Switzerland},
+  title={CH-RUN: a deep-learning-based spatially contiguous runoff reconstruction for Switzerland},
   author={B. Kraft, W. Aeberhard, M. Schirmer, M. Zappa, S. I. Seneviratne and L. Gudmundsson},
   journal={HESS},
   year={2025}
